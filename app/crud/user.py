@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from fastapi import APIRouter, Depends
 from app.deps.deps import get_db
 from app.utils.jwt_handler import create_access_token, decode_access_token
+from fastapi import HTTPException
 
 # Setup for password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
