@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 # Secret and algorithm – keep your secret key safe!
 SECRET_KEY = "your_secret_key_here"  # Change this and keep it secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour token lifetime
+ACCESS_TOKEN_EXPIRE_MINUTES = 20160  # 1 hour token lifetime
 
 #def create_access_token(data: dict, expires_delta: timedelta = None):
 #    to_encode = data.copy()
