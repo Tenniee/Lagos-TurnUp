@@ -13,12 +13,10 @@ class UserOut(BaseModel):
     id: int
     first_name: str
     last_name: str
-    email: EmailStr
+    email: str
     role: str
-
-    class Config:
-        orm_mode = True
-
+    access_token: str
+    token_type: str
 
 class UserLogin(BaseModel):
     email: EmailStr
