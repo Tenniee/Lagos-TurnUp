@@ -61,7 +61,7 @@ def create_new_user(user: UserCreate, db: Session = Depends(get_db)):
     new_user = create_user(db, user)
 
     # create a token with user.id embedded
-    access_token = create_access_token(data={"user_id": new_user.id})
+    access_token = create_access_token(user_id= new_user.id)
 
     return {
         "access_token": access_token,
@@ -103,7 +103,7 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
         )
     
     # Create access token
-    access_token = create_access_token(data={"user_id": user.id})
+    access_token = create_access_token(user_id= user.id)
     
     return {"access_token": access_token, "token_type": "bearer"}
 
