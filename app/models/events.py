@@ -34,3 +34,15 @@ class Newsletter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(100), unique=False, index=True)
+
+
+class Banner(Base):
+    __tablename__ = "banners"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    banner_image = Column(String(500), nullable=True)  # Store file path or URL
+    is_approved = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+

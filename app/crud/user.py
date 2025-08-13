@@ -17,20 +17,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_user(db: Session, user: UserCreate):
-    hashed_password = hash_password(user.password)
+def create_user(db: Session, user_data: dict, profile_picture_path: str = None):
+    hashed_password = hash_password(user_data["password"])
     new_user = User(
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email, 
+        first_name=user_data["first_name"],
+        last_name=user_data["last_name"],
+        email=user_data["email"], 
         password=hashed_password,
-        role=user.role
+        role=user_data["role"],
+        profile_picture=profile_picture_path
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     return new_user
-
     
 
 def get_users(db: Session, skip: int = 0, limit: int = 10):

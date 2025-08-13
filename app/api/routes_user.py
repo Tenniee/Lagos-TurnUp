@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, UploadFile, Form, File
 
 from sqlalchemy.orm import Session
 from app.schemas.user import UserCreate, UserOut, UserLogin, Token
 from fastapi import HTTPException
-from app.crud.user import create_user, get_users
+from app.crud.user import create_user, get_users, hash_password
 from app.deps.deps import get_db
 from typing import List
 from app.utils.jwt_handler import create_access_token, decode_access_token
@@ -12,6 +12,8 @@ from app.models.user import User
 from fastapi import HTTPException
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+import uuid
+import os
 
 
 
@@ -52,17 +54,60 @@ def login_for_access_token(
 
 
 
+async def save_profile_picture(file: UploadFile) -> str:
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(400, "File must be an image")
+    
+    file_extension = file.filename.split('.')[-1]
+    unique_filename = f"{uuid.uuid4()}.{file_extension}"
+    file_path = f"uploads/profiles/{unique_filename}"
+    
+    os.makedirs("uploads/profiles", exist_ok=True)
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    return f"/uploads/profiles/{unique_filename}"
+
+
 
 @router.post("/sub-admin-signup", response_model=UserOut)
-def create_new_user(user: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == user.email).first()
+async def create_new_user(
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form("sub-admin"),
+    profile_picture: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    # Check if email exists
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    new_user = create_user(db, user)
+    # Handle profile picture upload
+    profile_picture_path = None
+    if profile_picture:
+        profile_picture_path = await save_profile_picture(profile_picture)
 
-    # create a token with user.id embedded
-    access_token = create_access_token(user_id= new_user.id)
+    # Create user
+    hashed_password = hash_password(password)
+    new_user = User(
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        password=hashed_password,
+        role=role,
+        profile_picture=profile_picture_path
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Create token
+    access_token = create_access_token(user_id=new_user.id)
 
     return {
         "access_token": access_token,
@@ -71,8 +116,11 @@ def create_new_user(user: UserCreate, db: Session = Depends(get_db)):
         "first_name": new_user.first_name,
         "last_name": new_user.last_name,
         "email": new_user.email,
-        "role": new_user.role
+        "role": new_user.role,
+        "profile_picture": new_user.profile_picture
     }
+
+
 
 
 
@@ -111,3 +159,55 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def fetch_current_user_details(current_user: UserOut = Depends(get_current_user)):
     return current_user
+
+
+
+
+
+# Alternative version with more detailed response
+@router.delete("/delete-user/{user_id}")
+def delete_user_detailed(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Check if current user is super-admin
+    if current_user.role != "super-admin":
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied. Only super-admin can delete users."
+        )
+    
+    # Find the user to delete
+    user_to_delete = db.query(User).filter(User.id == user_id).first()
+    if not user_to_delete:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Store user info before deletion
+    deleted_user_info = {
+        "id": user_to_delete.id,
+        "email": user_to_delete.email,
+        "first_name": user_to_delete.first_name,
+        "last_name": user_to_delete.last_name,
+        "role": user_to_delete.role
+    }
+    
+    # Prevent super-admin from deleting themselves
+    if user_to_delete.id == current_user.id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot delete your own account"
+        )
+    
+    # Delete the user
+    db.delete(user_to_delete)
+    db.commit()
+    
+    return {
+        "message": "User deleted successfully",
+        "deleted_user": deleted_user_info,
+        "deleted_by": {
+            "id": current_user.id,
+            "email": current_user.email
+        }
+    }

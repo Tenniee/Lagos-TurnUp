@@ -1,4 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, computed_field
+from typing import Optional
+import os
 
 
 class UserCreate(BaseModel):
@@ -9,14 +11,25 @@ class UserCreate(BaseModel):
     role: str = "sub-admin"  
 
 
+
 class UserOut(BaseModel):
     id: int
     first_name: str
     last_name: str
     email: str
     role: str
-    access_token: str
-    token_type: str
+    profile_picture: Optional[str] = None
+
+    @computed_field
+    @property
+    def profile_picture_url(self) -> Optional[str]:
+        if self.profile_picture:
+            base_url = os.getenv("BASE_URL", "http://localhost:8000")
+            return f"{base_url}{self.profile_picture}"
+        return None
+
+    class Config:
+        from_attributes = True
 
 class UserLogin(BaseModel):
     email: EmailStr

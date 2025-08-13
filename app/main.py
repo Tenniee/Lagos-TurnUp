@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import routes_user
 from app.api.routes_events import router as event_router
 from app.core.database import Base, engine
+from fastapi.staticfiles import StaticFiles
+
 
 app = FastAPI(title="LagosTurnUp")
 
@@ -14,6 +16,9 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
 )
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
