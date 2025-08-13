@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.deps.deps import get_db
-from app.models.events import Event, Notification, Newsletter
-from app.schemas.events import EventCreate, NotificationOut, NewsletterCreate, EventUpdateSchema
+from app.models.events import Event, Notification, Newsletter, Banner
+from app.schemas.events import EventCreate, NotificationOut, NewsletterCreate, EventUpdateSchema, BannerOut, BannerUpdate
 from app.crud.events import push_notification
 from app.schemas.events import EventOut
 from typing import List, Optional
@@ -23,29 +23,48 @@ router = APIRouter()
 
 
 @router.post("/events/create")
-def create_event(
-    event: EventCreate,
+async def create_event(
+    event_name: str = Form(...),
+    state: str = Form(...),
+    venue: str = Form(...),
+    date: date = Form(...),
+    time: str = Form(...),
+    dress_code: str = Form(""),
+    event_description: str = Form(""),
+    is_featured: bool = Form(False),
+    event_flyer: UploadFile = File(None),  # File upload
     db: Session = Depends(get_db),
-    user: User = Depends(get_active_user)  # Require authenticated user here
+    user: User = Depends(get_active_user)
 ):
-    # Decode base64 image if provided
-    flyer_binary = None
-    if event.event_flyer:
-        try:
-            flyer_binary = base64.b64decode(event.event_flyer)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid base64 image")
+    flyer_path = None
+    if event_flyer:
+        # Validate file type
+        if not event_flyer.content_type.startswith('image/'):
+            raise HTTPException(400, "File must be an image")
+        
+        # Generate unique filename
+        file_extension = event_flyer.filename.split('.')[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"uploads/events/{unique_filename}"
+        
+        # Save file
+        os.makedirs("uploads/events", exist_ok=True)
+        with open(file_path, "wb") as buffer:
+            content = await event_flyer.read()
+            buffer.write(content)
+        
+        flyer_path = file_path
 
     new_event = Event(
-        event_name=event.event_name,
-        state=event.state,
-        venue=event.venue,
-        date=event.date,
-        time=event.time,
-        dress_code=event.dress_code or '',
-        event_description=event.event_description or '',
-        is_featured=event.is_featured,
-        event_flyer=flyer_binary or ''
+        event_name=event_name,
+        state=state,
+        venue=venue,
+        date=date,
+        time=time,
+        dress_code=dress_code,
+        event_description=event_description,
+        is_featured=is_featured,
+        event_flyer=flyer_path  # Store file path
     )
 
     db.add(new_event)
@@ -171,9 +190,17 @@ def add_to_newsletter(data: NewsletterCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/events/{event_id}")
-def edit_event(
+async def edit_event(
     event_id: int,
-    event_data: EventUpdateSchema,
+    event_name: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    venue: Optional[str] = Form(None),
+    date: Optional[date] = Form(None),
+    time: Optional[str] = Form(None),
+    dress_code: Optional[str] = Form(None),
+    event_description: Optional[str] = Form(None),
+    is_featured: Optional[bool] = Form(None),
+    event_flyer: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     user=Depends(get_active_user)
 ):
@@ -182,13 +209,85 @@ def edit_event(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    # Update fields dynamically
-    for key, value in event_data.dict(exclude_unset=True).items():
-        setattr(event, key, value)
+    # Update text fields if provided
+    if event_name is not None:
+        event.event_name = event_name
+    if state is not None:
+        event.state = state
+    if venue is not None:
+        event.venue = venue
+    if date is not None:
+        event.date = date
+    if time is not None:
+        event.time = time
+    if dress_code is not None:
+        event.dress_code = dress_code
+    if event_description is not None:
+        event.event_description = event_description
+    if is_featured is not None:
+        event.is_featured = is_featured
+
+    # Handle flyer upload if provided
+    if event_flyer:
+        # Delete old flyer file if it exists
+        if event.event_flyer:
+            old_file_path = event.event_flyer.lstrip('/')
+            if os.path.exists(old_file_path):
+                os.remove(old_file_path)
+        
+        # Validate and save new flyer
+        if not event_flyer.content_type.startswith('image/'):
+            raise HTTPException(400, "File must be an image")
+        
+        file_extension = event_flyer.filename.split('.')[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"uploads/events/{unique_filename}"
+        
+        os.makedirs("uploads/events", exist_ok=True)
+        with open(file_path, "wb") as buffer:
+            content = await event_flyer.read()
+            buffer.write(content)
+        
+        event.event_flyer = f"/uploads/events/{unique_filename}"
 
     db.commit()
     db.refresh(event)
+    
     return {"message": "Event updated successfully", "event": event}
+
+
+@router.put("/approve-event/{event_id}")
+def approve_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_active_user)
+):
+    # Find event by ID
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Set is_featured to True
+    event.is_featured = True
+    db.commit()
+    db.refresh(event)
+
+    return {"message": f"Event '{event.event_name}' approved successfully", "event": event}
+
+@router.put("/unapprove-event/{event_id}/unapprove")
+def unapprove_event(event_id: int, db: Session = Depends(get_db), user=Depends(get_active_user)):
+    # Find the event
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Set is_featured to False
+    event.is_featured = False
+    db.commit()
+    db.refresh(event)
+
+    return {"message": "Event unapproved successfully", "event": event}
+
 
 
 # Delete Event
@@ -206,3 +305,215 @@ def delete_event(
     db.delete(event)
     db.commit()
     return {"message": "Event deleted successfully"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def check_approved_banner_limit(db: Session, exclude_id: Optional[int] = None):
+    query = db.query(Banner).filter(Banner.is_approved == True)
+    if exclude_id:
+        query = query.filter(Banner.id != exclude_id)
+    approved_count = query.count()
+    return approved_count < 10
+
+# Helper function to save uploaded file
+async def save_banner_file(file: UploadFile) -> str:
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(400, "File must be an image")
+    
+    file_extension = file.filename.split('.')[-1]
+    unique_filename = f"{uuid.uuid4()}.{file_extension}"
+    file_path = f"uploads/banners/{unique_filename}"
+    
+    os.makedirs("uploads/banners", exist_ok=True)
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    return f"/uploads/banners/{unique_filename}"
+
+@router.post("/banners/create", response_model=BannerOut)
+async def add_banner(
+    name: str = Form(...),
+    banner: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Save the banner image
+    banner_path = await save_banner_file(banner)
+    
+    new_banner = Banner(
+        name=name,
+        banner_image=banner_path,
+        is_approved=False  # Default to not approved
+    )
+    
+    db.add(new_banner)
+    db.commit()
+    db.refresh(new_banner)
+
+    push_notification(
+        db,
+        message=f"New banner '{new_banner.name}' created",
+        type_="banner",  # Changed from "event" to "banner"
+        entity_id=new_banner.id,
+        extra_data={"name": new_banner.name}  # Added some useful data
+    )
+    
+    return new_banner
+
+
+
+@router.put("/banners/{banner_id}", response_model=BannerOut)
+async def edit_banner(
+    banner_id: int,
+    name: Optional[str] = Form(None),
+    banner: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Get existing banner
+    existing_banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not existing_banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    # Update name if provided
+    if name:
+        existing_banner.name = name
+    
+    # Update banner image if provided
+    if banner:
+        # Delete old file if it exists
+        if existing_banner.banner_image:
+            old_file_path = existing_banner.banner_image.lstrip('/')
+            if os.path.exists(old_file_path):
+                os.remove(old_file_path)
+        
+        # Save new file
+        banner_path = await save_banner_file(banner)
+        existing_banner.banner_image = banner_path
+    
+    db.commit()
+    db.refresh(existing_banner)
+    
+    return existing_banner
+
+@router.delete("/banners/{banner_id}")
+def delete_banner(
+    banner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    # Delete file if it exists
+    if banner.banner_image:
+        file_path = banner.banner_image.lstrip('/')
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    
+    db.delete(banner)
+    db.commit()
+    
+    return {"message": "Banner deleted successfully"}
+
+@router.patch("/banners/{banner_id}/approve", response_model=BannerOut)
+def approve_banner(
+    banner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    if banner.is_approved:
+        raise HTTPException(status_code=400, detail="Banner is already approved")
+    
+    # Check if we can approve more banners
+    if not check_approved_banner_limit(db):
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot approve more banners. Maximum of 10 approved banners allowed."
+        )
+    
+    banner.is_approved = True
+    db.commit()
+    db.refresh(banner)
+    
+    return banner
+
+@router.patch("/banners/{banner_id}/unapprove", response_model=BannerOut)
+def unapprove_banner(
+    banner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    if not banner.is_approved:
+        raise HTTPException(status_code=400, detail="Banner is already unapproved")
+    
+    banner.is_approved = False
+    db.commit()
+    db.refresh(banner)
+    
+    return banner
+
+@router.get("/banners", response_model=List[BannerOut])
+def get_banners(
+    approved_only: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Banner)
+    
+    if approved_only is not None:
+        query = query.filter(Banner.is_approved == approved_only)
+    
+    query = query.order_by(Banner.created_at.desc())
+    return query.all()
+
+@router.get("/banners/{banner_id}", response_model=BannerOut)
+def get_banner(
+    banner_id: int,
+    db: Session = Depends(get_db)
+):
+    banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    return banner
