@@ -11,24 +11,28 @@ class EventCreate(BaseModel):
     venue: str
     date: date
     time: str
-    dress_code: Optional[str] = ""  # Default to empty string
-    event_description: Optional[str] = ""  # Default to empty string
-    is_featured: Optional[bool] = False
-    event_flyer: Optional[str] = "" 
+    dress_code: Optional[str] = ""
+    event_description: Optional[str] = ""
+    event_flyer: Optional[str] = ""
+    
+    # Featured request fields
+    featured_requested: Optional[bool] = False
+    contact_method: Optional[str] = ""  # email, phone, whatsapp
+    contact_link: Optional[str] = ""
 
 
 class EventOut(BaseModel):
     id: int
-    event_name: str  # Changed from 'name'
+    event_name: str
     state: str
     venue: str
     date: date
     time: str
     dress_code: Optional[str] = None
     event_description: Optional[str] = None
-    event_flyer: Optional[str] = None  # Changed from 'flyer_url'
+    event_flyer: Optional[str] = None
     is_featured: bool = False
-    # created_at: Optional[datetime] = None  # Remove this since your model doesn't have it
+    pending: bool = True  # Add this line
 
     @computed_field
     @property
@@ -39,7 +43,9 @@ class EventOut(BaseModel):
         return None
 
     class Config:
-        from_attributes = True  # This tells Pydantic to read from SQLAlchemy objects
+        from_attributes = True
+
+    
 
 
 class NotificationOut(BaseModel):
@@ -85,6 +91,7 @@ class BannerOut(BaseModel):
     id: int
     name: str
     banner_image: Optional[str] = None
+    banner_link: Optional[str] = None
     is_approved: bool = False
     created_at: datetime
     updated_at: datetime
@@ -99,3 +106,15 @@ class BannerOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    
+
+
+class SpotCreate(BaseModel):
+    location_name: str
+    city: str
+    state: str
+    spot_type: str  # hotel, club, bar, beach
+    additional_info: Optional[str] = ""
+    cover_image: Optional[str] = ""
+

@@ -14,6 +14,7 @@ from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 import uuid
 import os
+from typing import List, Optional
 
 
 
@@ -119,6 +120,132 @@ async def create_new_user(
         "role": new_user.role,
         "profile_picture": new_user.profile_picture
     }
+
+
+
+
+
+
+
+
+
+@router.put("/sub-admin/{user_id}", response_model=UserOut)
+async def update_sub_admin(
+    user_id: int,
+    first_name: Optional[str] = Form(None),
+    last_name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    role: Optional[str] = Form(None),
+    profile_picture: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)  # Assuming you have authentication
+):
+    # Check if user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Optional: Check if current user has permission to update this user
+    # You might want to restrict this based on roles or ownership
+    if current_user.role not in ["admin", "super-admin"] and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this user")
+
+    # Check if email is being updated and if it already exists
+    if email and email != user.email:
+        existing_email = db.query(User).filter(User.email == email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = email
+
+    # Update fields if provided
+    if first_name is not None:
+        user.first_name = first_name
+    
+    if last_name is not None:
+        user.last_name = last_name
+    
+    if password is not None:
+        user.password = hash_password(password)
+    
+    if role is not None:
+        # Optional: Add role validation
+        valid_roles = ["sub-admin", "super-admin"]
+        if role not in valid_roles:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        user.role = role
+
+    # Handle profile picture update
+    if profile_picture:
+        # Optional: Delete old profile picture if it exists
+        if user.profile_picture:
+            # You might want to delete the old file from storage
+            pass
+        
+        new_profile_picture_path = await save_profile_picture(profile_picture)
+        user.profile_picture = new_profile_picture_path
+
+    # Update timestamp (assuming you have an updated_at field)
+    # user.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "role": user.role,
+        "profile_picture": user.profile_picture
+    }
+
+
+
+
+
+
+@router.put("/update-password")
+async def update_password(
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user password
+    Requires current password verification
+    """
+    # Verify new passwords match
+    if new_password != confirm_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="New passwords do not match"
+        )
+    
+    # Verify current password
+    if not verify_password(current_password, current_user.password):
+        raise HTTPException(
+            status_code=400, 
+            detail="Current password is incorrect"
+        )
+    
+    # Validate new password strength (optional)
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400, 
+            detail="New password must be at least 8 characters long"
+        )
+    
+    # Update password
+    current_user.password = hash_password(new_password)
+    db.commit()
+    
+    return {
+        "message": "Password updated successfully"
+    }
+
 
 
 

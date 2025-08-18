@@ -40,3 +40,12 @@ from pydantic import BaseModel
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetVerify(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str

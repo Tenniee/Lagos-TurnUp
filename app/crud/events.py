@@ -42,3 +42,66 @@ def push_notification(db: Session, message: str, type_: str, entity_id: int = No
     db.commit()
     db.refresh(notification)
     return notification
+
+
+def create_spot(db: Session, data, cover_image_file):
+    # Generate unique filename
+    filename = f"{uuid.uuid4().hex}_{cover_image_file.filename}"
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+    # Save image
+    with open(file_path, "wb") as buffer:
+        buffer.write(cover_image_file.file.read())
+
+    # Save to DB
+    new_spot = Spot(
+        location_name=data.location_name,
+        city=data.city,
+        state=data.state,
+        spot_type=data.spot_type,
+        additional_info=data.additional_info,
+        cover_image=filename,
+    )
+
+    db.add(new_spot)
+    db.commit()
+    db.refresh(new_spot)
+    return new_spot
+
+
+
+
+
+def edit_spot(db: Session, spot_id: int, data, cover_image_file=None):
+    # Get existing spot
+    spot = db.query(Spot).filter(Spot.id == spot_id).first()
+    if not spot:
+        return None
+    
+    # Handle image update if provided
+    if cover_image_file:
+        # Delete old image if it exists
+        if spot.cover_image:
+            old_file_path = os.path.join(UPLOAD_FOLDER, spot.cover_image)
+            if os.path.exists(old_file_path):
+                os.remove(old_file_path)
+        
+        # Save new image
+        filename = f"{uuid.uuid4().hex}_{cover_image_file.filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        
+        with open(file_path, "wb") as buffer:
+            buffer.write(cover_image_file.file.read())
+        
+        spot.cover_image = filename
+    
+    # Update other fields
+    spot.location_name = data.location_name
+    spot.city = data.city
+    spot.state = data.state
+    spot.spot_type = data.spot_type
+    spot.additional_info = data.additional_info
+
+    db.commit()
+    db.refresh(spot)
+    return spot

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{{ subject }}</title>
+    <style>
+        /* Reset styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        
+        /* Email container */
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        /* Header */
+        .email-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .email-header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        /* Content */
+        .email-content {
+            padding: 40px 30px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #333333;
+        }
+        
+        .message-content {
+            font-size: 16px;
+            line-height: 1.8;
+            color: #555555;
+            margin-bottom: 30px;
+            white-space: pre-line;
+        }
+        
+        .signature {
+            border-top: 1px solid #e0e0e0;
+            padding-top: 20px;
+            margin-top: 30px;
+            color: #666666;
+            font-size: 14px;
+        }
+        
+        .sender-name {
+            font-weight: 600;
+            color: #333333;
+            margin-bottom: 5px;
+        }
+        
+        /* Footer */
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .footer-text {
+            font-size: 12px;
+            color: #6c757d;
+            margin: 0;
+        }
+        
+        /* Responsive design */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                margin: 10px;
+                border-radius: 4px;
+            }
+            
+            .email-header {
+                padding: 30px 15px;
+            }
+            
+            .email-header h1 {
+                font-size: 20px;
+            }
+            
+            .email-content {
+                padding: 30px 20px;
+            }
+            
+            .greeting {
+                font-size: 16px;
+            }
+            
+            .message-content {
+                font-size: 15px;
+            }
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .email-container {
+                background-color: #ffffff;
+            }
+            
+            .message-content,
+            .greeting,
+            .sender-name {
+                color: #333333;
+            }
+        }
+        
+        /* Outlook specific fixes */
+        table {
+            border-collapse: collapse;
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        
+        img {
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+            -ms-interpolation-mode: bicubic;
+        }
+    </style>
+    <!--[if mso]>
+    <style type="text/css">
+        .email-container {
+            width: 600px !important;
+        }
+    </style>
+    <![endif]-->
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="email-header">
+            <h1>Message for You</h1>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="email-content">
+            <div class="greeting">
+                Hello {{ recipient_name }},
+            </div>
+            
+            <div class="message-content">
+                {{ custom_message }}
+            </div>
+            
+            <div class="signature">
+                <div class="sender-name">
+                    Best regards,<br>
+                    {{ sender_name }}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="email-footer">
+            <p class="footer-text">
+                This email was sent to {{ recipient_name }} at {{ to_email }}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.deps.deps import get_db
-from app.models.events import Event, Notification, Newsletter, Banner
+from app.models.events import Event, Notification, Newsletter, Banner, Spot
 from app.schemas.events import EventCreate, NotificationOut, NewsletterCreate, EventUpdateSchema, BannerOut, BannerUpdate
 from app.crud.events import push_notification
 from app.schemas.events import EventOut
@@ -31,11 +31,24 @@ async def create_event(
     time: str = Form(...),
     dress_code: str = Form(""),
     event_description: str = Form(""),
-    is_featured: bool = Form(False),
-    event_flyer: UploadFile = File(None),  # File upload
+    event_flyer: UploadFile = File(None),
+    
+    # Featured request fields
+    featured_requested: bool = Form(False),
+    contact_method: str = Form(""),  # email, phone, whatsapp
+    contact_link: str = Form(""),
+    
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
 ):
+    # Validate contact method if featured is requested
+    if featured_requested:
+        valid_methods = ["email", "phone", "whatsapp"]
+        if contact_method not in valid_methods:
+            raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
+        if not contact_link:
+            raise HTTPException(400, "Contact link is required when requesting featured event")
+
     flyer_path = None
     if event_flyer:
         # Validate file type
@@ -63,36 +76,74 @@ async def create_event(
         time=time,
         dress_code=dress_code,
         event_description=event_description,
-        is_featured=is_featured,
-        event_flyer=flyer_path  # Store file path
+        event_flyer=flyer_path,
+        is_featured=False,  # Always False initially
+        pending=True,
+        
+        # Featured request data
+        featured_requested=featured_requested,
+        contact_method=contact_method if featured_requested else None,
+        contact_link=contact_link if featured_requested else None,
     )
 
     db.add(new_event)
     db.commit()
     db.refresh(new_event)
 
-    # Push notification
-    push_notification(
-        db,
-        message=f"New event '{new_event.event_name}' created",
-        type_="event",
-        entity_id=new_event.id,
-        extra_data={"state": new_event.state, "venue": new_event.venue}
-    )
+    # Smart notification based on event type
+    if featured_requested:
+        push_notification(
+            db,
+            message=f"🌟 New FEATURED event request: '{new_event.event_name}' - Contact via {contact_method}",
+            type_="featured_event",
+            entity_id=new_event.id,
+            extra_data={
+                "state": new_event.state, 
+                "venue": new_event.venue,
+                "contact_method": contact_method,
+                "contact_link": contact_link,
+                "featured": True
+            }
+        )
+    else:
+        push_notification(
+            db,
+            message=f"New event '{new_event.event_name}' created",
+            type_="event",
+            entity_id=new_event.id,
+            extra_data={
+                "state": new_event.state, 
+                "venue": new_event.venue,
+                "featured": False
+            }
+        )
 
-    return {"message": "Event created successfully", "event_id": new_event.id}
+    return {
+        "message": "Event created successfully", 
+        "event_id": new_event.id, 
+        "featured_requested": featured_requested
+    }
+
+
+
 
 
 
 
 @router.get("/events", response_model=List[EventOut])
 def get_events(
+    id: Optional[int] = Query(None, description="Filter by event ID"),
     state: Optional[str] = Query(None, description="Filter by state"),
     is_featured: Optional[bool] = Query(None, description="Filter by is_featured"),
+    pending: Optional[bool] = Query(None, description="Filter by pending status"),
     limit: Optional[int] = Query(None, description="Number of latest events to fetch"),
     db: Session = Depends(get_db)
 ):
     query = db.query(Event)
+
+    # Filter by ID if provided
+    if id is not None:
+        query = query.filter(Event.id == id)
 
     # Filter by state if provided
     if state:
@@ -102,6 +153,10 @@ def get_events(
     if is_featured is not None:
         query = query.filter(Event.is_featured == is_featured)
 
+    # Filter by pending if provided
+    if pending is not None:
+        query = query.filter(Event.pending == pending)
+
     # Order by newest first
     query = query.order_by(Event.created_at.desc())
 
@@ -110,6 +165,68 @@ def get_events(
         query = query.limit(limit)
 
     return query.all()
+
+
+
+
+
+
+
+
+@router.put("/events/{event_id}/approve-featured")
+async def approve_featured_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)  # Only admins can do this
+):
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(404, "Event not found")
+    
+    if not event.featured_requested:
+        raise HTTPException(400, "Event was not requested to be featured")
+    
+    event.is_featured = True
+    db.commit()
+    db.refresh(event)
+    
+    # Notification that event is now featured
+    push_notification(
+        db,
+        message=f"🎉 Event '{event.event_name}' is now FEATURED!",
+        type_="event_featured",
+        entity_id=event.id,
+        extra_data={
+            "event_name": event.event_name,
+            "state": event.state,
+            "venue": event.venue
+        }
+    )
+    
+    return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
+
+
+# Get featured requests for admin
+@router.get("/admin/featured-requests")
+async def get_featured_requests(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Get events that requested featured but aren't featured yet
+    events = db.query(Event).filter(
+        Event.featured_requested == True,
+        Event.is_featured == False
+    ).all()
+    return events
+
+
+
+
+
+
+
+
+
 
 
 
@@ -200,6 +317,12 @@ async def edit_event(
     dress_code: Optional[str] = Form(None),
     event_description: Optional[str] = Form(None),
     is_featured: Optional[bool] = Form(None),
+    
+    # Featured request fields
+    featured_requested: Optional[bool] = Form(None),
+    contact_method: Optional[str] = Form(None),  # email, phone, whatsapp
+    contact_link: Optional[str] = Form(None),
+    
     event_flyer: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     user=Depends(get_active_user)
@@ -208,6 +331,18 @@ async def edit_event(
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    # Validate featured request fields if being updated
+    if featured_requested is not None and featured_requested:
+        # If they're requesting featured, validate the contact info
+        final_contact_method = contact_method if contact_method is not None else event.contact_method
+        final_contact_link = contact_link if contact_link is not None else event.contact_link
+        
+        valid_methods = ["email", "phone", "whatsapp"]
+        if final_contact_method not in valid_methods:
+            raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
+        if not final_contact_link:
+            raise HTTPException(400, "Contact link is required when requesting featured event")
 
     # Update text fields if provided
     if event_name is not None:
@@ -226,6 +361,20 @@ async def edit_event(
         event.event_description = event_description
     if is_featured is not None:
         event.is_featured = is_featured
+    
+    # Update featured request fields if provided
+    if featured_requested is not None:
+        event.featured_requested = featured_requested
+        # If they're no longer requesting featured, clear the contact info
+        if not featured_requested:
+            event.contact_method = None
+            event.contact_link = None
+    
+    if contact_method is not None:
+        event.contact_method = contact_method if event.featured_requested else None
+    
+    if contact_link is not None:
+        event.contact_link = contact_link if event.featured_requested else None
 
     # Handle flyer upload if provided
     if event_flyer:
@@ -255,6 +404,11 @@ async def edit_event(
     
     return {"message": "Event updated successfully", "event": event}
 
+
+
+
+
+    
 
 @router.put("/approve-event/{event_id}")
 def approve_event(
@@ -366,6 +520,7 @@ async def save_banner_file(file: UploadFile) -> str:
 @router.post("/banners/create", response_model=BannerOut)
 async def add_banner(
     name: str = Form(...),
+    banner_link: str = Form(""),  # Optional banner link
     banner: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
@@ -376,6 +531,7 @@ async def add_banner(
     new_banner = Banner(
         name=name,
         banner_image=banner_path,
+        banner_link=banner_link if banner_link else None,
         is_approved=False  # Default to not approved
     )
     
@@ -388,7 +544,7 @@ async def add_banner(
         message=f"New banner '{new_banner.name}' created",
         type_="banner",  # Changed from "event" to "banner"
         entity_id=new_banner.id,
-        extra_data={"name": new_banner.name}  # Added some useful data
+        extra_data={"name": new_banner.name, "has_link": bool(new_banner.banner_link)}  # Added link info
     )
     
     return new_banner
@@ -517,3 +673,150 @@ def get_banner(
     if not banner:
         raise HTTPException(status_code=404, detail="Banner not found")
     return banner
+
+
+
+
+
+
+
+
+
+
+
+
+
+@router.post("/spots/create")
+async def create_spot_endpoint(
+    location_name: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    spot_type: str = Form(...),  # hotel, club, bar, beach
+    additional_info: str = Form(""),
+    cover_image: UploadFile = File(None),  # File upload
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Validate spot_type
+    valid_types = ["hotel", "club", "bar", "beach"]
+    if spot_type not in valid_types:
+        raise HTTPException(400, f"Invalid spot type. Must be one of: {', '.join(valid_types)}")
+    
+    cover_image_path = None
+    if cover_image:
+        # Validate file type
+        if not cover_image.content_type.startswith('image/'):
+            raise HTTPException(400, "File must be an image")
+        
+        # Generate unique filename
+        file_extension = cover_image.filename.split('.')[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"uploads/spots/{unique_filename}"
+        
+        # Save file
+        os.makedirs("uploads/spots", exist_ok=True)
+        with open(file_path, "wb") as buffer:
+            content = await cover_image.read()
+            buffer.write(content)
+        
+        cover_image_path = file_path
+
+    new_spot = Spot(
+        location_name=location_name,
+        city=city,
+        state=state,
+        spot_type=spot_type,
+        additional_info=additional_info,
+        cover_image=cover_image_path,
+    )
+
+    db.add(new_spot)
+    db.commit()
+    db.refresh(new_spot)
+
+    return {"message": "Spot created successfully", "spot_id": new_spot.id}
+
+
+@router.get("/spots")
+async def get_all_spots(
+    db: Session = Depends(get_db)
+):
+    spots = db.query(Spot).all()
+    return spots
+
+
+@router.get("/spots/type/{spot_type}")
+async def get_spots_by_type(
+    spot_type: str,
+    db: Session = Depends(get_db)
+):
+    # Validate spot_type
+    valid_types = ["hotel", "club", "bar", "beach"]
+    if spot_type not in valid_types:
+        raise HTTPException(400, f"Invalid spot type. Must be one of: {', '.join(valid_types)}")
+    
+    spots = db.query(Spot).filter(Spot.spot_type == spot_type).all()
+    return spots
+
+
+
+
+
+@router.put("/spots/edit/{spot_id}")
+async def edit_spot_endpoint(
+    spot_id: int,
+    location_name: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    spot_type: str = Form(...),  # hotel, club, bar, beach
+    additional_info: str = Form(""),
+    cover_image: UploadFile = File(None),  # Optional file upload
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Check if spot exists
+    existing_spot = db.query(Spot).filter(Spot.id == spot_id).first()
+    if not existing_spot:
+        raise HTTPException(404, "Spot not found")
+    
+    # Validate spot_type
+    valid_types = ["hotel", "club", "bar", "beach"]
+    if spot_type not in valid_types:
+        raise HTTPException(400, f"Invalid spot type. Must be one of: {', '.join(valid_types)}")
+    
+    # Handle image update if provided
+    if cover_image:
+        # Validate file type
+        if not cover_image.content_type.startswith('image/'):
+            raise HTTPException(400, "File must be an image")
+        
+        # Delete old image if it exists
+        if existing_spot.cover_image:
+            old_file_path = f"uploads/spots/{existing_spot.cover_image.split('/')[-1]}"
+            if os.path.exists(old_file_path):
+                os.remove(old_file_path)
+        
+        # Generate unique filename for new image
+        file_extension = cover_image.filename.split('.')[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"uploads/spots/{unique_filename}"
+        
+        # Save new file
+        os.makedirs("uploads/spots", exist_ok=True)
+        with open(file_path, "wb") as buffer:
+            content = await cover_image.read()
+            buffer.write(content)
+        
+        existing_spot.cover_image = file_path
+    
+    # Update other fields
+    existing_spot.location_name = location_name
+    existing_spot.city = city
+    existing_spot.state = state
+    existing_spot.spot_type = spot_type
+    existing_spot.additional_info = additional_info
+
+    db.commit()
+    db.refresh(existing_spot)
+
+    return {"message": "Spot updated successfully", "spot_id": existing_spot.id}
