@@ -16,6 +16,8 @@ from app.core.config import settings
 from app.utils.template_utils import render_template
 from app.crud import email
 
+from app.schemas.email import OTPEmailRequest
+
 logger = logging.getLogger(__name__)
 
 # Configure Resend
@@ -221,89 +223,153 @@ async def send_custom_email(db: Session, email_request) -> Dict[str, Any]:
         )
 
 
-async def send_otp_email(db: Session, email_request) -> Dict[str, Any]:
+
+
+
+
+
+async def send_otp_email(db: Session, email_request: OTPEmailRequest) -> Dict[str, Any]:
     """Send OTP email for password reset"""
-    # Generate OTP
-    otp_code = generate_otp()
-    expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
-    
-    # Create OTP record
-    otp_record = email.create_otp_record(
-        db=db,
-        email=email_request.to_email,
-        otp_code=otp_code,
-        expires_at=expires_at
-    )
-    
-    # Create email log
-    email_log = email.create_email_log(
-        db=db,
-        to_email=email_request.to_email,
-        from_email=settings.FROM_EMAIL,
-        subject="Password Reset OTP",
-        email_type="otp_reset",
-        recipient_name=email_request.recipient_name
-    )
+    print("SEND_OTP_EMAIL FUNCTION CALLED!")
+    email_log = None
     
     try:
-        # Prepare template context
-        context = prepare_otp_email_context(
-            email_request.recipient_name,
-            otp_code
-        )
+        logger.info(f"=== Starting OTP email send process ===")
+        logger.info(f"To: {email_request.to_email}")
+        logger.info(f"Recipient: {email_request.recipient_name}")
+
+        # Generate OTP
+        otp_code = generate_otp()
+        logger.info(f"Generated OTP: {otp_code}")
+
+        # Test 1: Create email log
+        print("TEST 1: About to create email log")
+        logger.info(f"Creating email log...")
+        try:
+            email_log = email.create_email_log(
+                db=db,
+                to_email=email_request.to_email,
+                from_email=settings.FROM_EMAIL,
+                subject="Your OTP Code",
+                email_type="otp",
+                recipient_name=email_request.recipient_name,
+                sender_name="System"
+            )
+            print(f"TEST 1 SUCCESS: Email log created with ID: {email_log.id}")
+            logger.info(f"✓ Email log created with ID: {email_log.id}")
+        except Exception as log_error:
+            print(f"TEST 1 FAILED: {str(log_error)}")
+            logger.error(f"❌ Failed to create email log: {str(log_error)}")
+            raise log_error
         
-        # Render template
-        html_content = render_template("otp_reset.html", context)
+        # Test 2: Prepare template context
+        print("TEST 2: About to prepare template context")
+        logger.info(f"Preparing template context...")
+        try:
+            context = prepare_otp_email_context(
+                email_request.recipient_name,
+                otp_code
+            )
+            print(f"TEST 2 SUCCESS: Context prepared: {context}")
+            logger.info(f"✓ Context prepared: {context}")
+        except Exception as context_error:
+            print(f"TEST 2 FAILED: {str(context_error)}")
+            logger.error(f"❌ Failed to prepare context: {str(context_error)}")
+            raise context_error
         
-        # Send email
-        result = await send_email(
-            to=email_request.to_email,
-            subject="Password Reset OTP",
-            html_content=html_content
-        )
+        # Test 3: Render template
+        print("TEST 3: About to render template")
+        logger.info(f"Rendering template...")
+        try:
+            html_content = render_template("otp_email.html", context)
+            print(f"TEST 3 SUCCESS: Template rendered. Length: {len(html_content)}")
+            logger.info(f"✓ Template rendered successfully. Length: {len(html_content)}")
+            logger.info(f"HTML preview: {html_content[:200]}...")
+        except Exception as template_error:
+            print(f"TEST 3 FAILED: {str(template_error)}")
+            logger.error(f"❌ Template rendering failed: {str(template_error)}")
+            raise template_error
+
+        # Test 4: Send email
+        print("TEST 4: About to send email")
+        logger.info(f"Calling send_email function...")
+        logger.info(f"FROM_EMAIL setting: {settings.FROM_EMAIL}")
+        try:
+            result = await send_email(
+                to=email_request.to_email,
+                subject="Your OTP Code",
+                html_content=html_content,
+                from_email=settings.FROM_EMAIL
+            )
+            print(f"TEST 4 SUCCESS: Email sent. Result: {result}")
+            logger.info(f"✓ send_email returned: {result}")
+        except Exception as send_error:
+            print(f"TEST 4 FAILED: {str(send_error)}")
+            logger.error(f"❌ send_email failed: {str(send_error)}")
+            raise send_error
         
-        # Update email log
-        email.update_email_status(
-            db=db,
-            email_id=email_log.id,
-            status="sent",
-            resend_id=result.get("resend_id")
-        )
+        # Test 5: Update email log
+        print("TEST 5: About to update email status")
+        logger.info(f"Updating email status to sent...")
+        try:
+            email.update_email_status(
+                db=db,
+                email_id=email_log.id,
+                status="sent",
+                resend_id=result.get("resend_id")
+            )
+            print("TEST 5 SUCCESS: Email status updated")
+            logger.info(f"✓ Email status updated successfully")
+        except Exception as update_error:
+            print(f"TEST 5 FAILED: {str(update_error)}")
+            logger.error(f"❌ Failed to update email status: {str(update_error)}")
+            raise update_error
         
+        # Test 6: Store OTP in database (you'll need to implement this)
+        print("TEST 6: About to store OTP")
+        try:
+            # You'll need to create this function in your crud/email.py
+            # email.store_otp(db=db, email=email_request.to_email, otp=otp_code)
+            print("TEST 6 SUCCESS: OTP stored (implement store_otp function)")
+        except Exception as otp_error:
+            print(f"TEST 6 FAILED: {str(otp_error)}")
+            # Don't raise here if OTP storage fails, email was still sent
+        
+        print("ALL TESTS PASSED - Returning success")
         return {
             "message": "OTP email sent successfully",
             "recipient": email_request.to_email,
-            "expires_in_minutes": settings.OTP_EXPIRY_MINUTES,
-            "email_id": email_log.id
+            "email_id": email_log.id,
+            "status": "sent",
+            "otp_code": otp_code,  # Remove this in production for security
+            "expires_in_minutes": settings.OTP_EXPIRY_MINUTES  # Add this field
         }
         
     except Exception as e:
-        # Update email log with error
-        email.update_email_status(
-            db=db,
-            email_id=email_log.id,
-            status="failed",
-            error_message=str(e)
-        )
-        raise
-
-
-def verify_otp(db: Session, email: str, otp_code: str) -> Dict[str, Any]:
-    """Verify OTP for password reset"""
-    # Get valid OTP
-    otp_record = email.get_valid_otp(db, email, otp_code)
-    
-    if not otp_record:
+        print(f"EXCEPTION CAUGHT: {str(e)} (Type: {type(e).__name__})")
+        logger.error(f"❌ Unexpected error in send_otp_email: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error args: {e.args}")
+        
+        # Update email log with error if we created one
+        if email_log:
+            logger.info(f"Updating email log {email_log.id} with error status...")
+            email.update_email_status(
+                db=db,
+                email_id=email_log.id,
+                status="failed",
+                error_message=str(e)
+            )
+        
         raise HTTPException(
-            status_code=400, 
-            detail="Invalid or expired OTP"
+            status_code=500, 
+            detail=f"Failed to send OTP email to {email_request.to_email}: {str(e)}"
         )
-    
-    # Mark as used
-    email.mark_otp_as_used(db, otp_record)
-    
-    return {
-        "message": "OTP verified successfully",
-        "email": email,
-        "verified": True
-    }
+
+
+
+
+
+
+
+

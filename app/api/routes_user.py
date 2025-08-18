@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, UploadFile, Form, File
 
 from sqlalchemy.orm import Session
-from app.schemas.user import UserCreate, UserOut, UserLogin, Token
+from app.schemas.user import UserCreate, UserOut, UserLogin, Token, PasswordResetRequest
 from fastapi import HTTPException
 from app.crud.user import create_user, get_users, hash_password
 from app.deps.deps import get_db
@@ -245,6 +245,51 @@ async def update_password(
     return {
         "message": "Password updated successfully"
     }
+
+
+
+
+
+
+
+@router.put("/reset-password-simple")
+async def reset_password_simple(
+    request: PasswordResetRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Simple password reset endpoint
+    WARNING: This relies on frontend to only show after OTP verification
+    Less secure than token-based approach
+    """
+    # Verify passwords match
+    if request.new_password != request.confirm_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="Passwords do not match"
+        )
+    
+    # Validate password strength
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=400, 
+            detail="Password must be at least 8 characters long"
+        )
+    
+    # Get user by email
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")  
+    
+    # Update password
+    user.password = hash_password(request.new_password)
+    db.commit()
+    
+    return {
+        "message": "Password reset successfully",
+        "email": request.email
+    }
+
 
 
 

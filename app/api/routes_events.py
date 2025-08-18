@@ -49,24 +49,37 @@ async def create_event(
         if not contact_link:
             raise HTTPException(400, "Contact link is required when requesting featured event")
 
-    flyer_path = None
+    flyer_filename = None
+    flyer_url = None
+    
     if event_flyer:
         # Validate file type
         if not event_flyer.content_type.startswith('image/'):
             raise HTTPException(400, "File must be an image")
         
+        # Validate file size (optional - add reasonable limit)
+        content = await event_flyer.read()
+        if len(content) > 5 * 1024 * 1024:  # 5MB limit
+            raise HTTPException(400, "File size too large. Maximum 5MB allowed.")
+        
         # Generate unique filename
-        file_extension = event_flyer.filename.split('.')[-1]
+        file_extension = event_flyer.filename.split('.')[-1].lower()
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
         file_path = f"uploads/events/{unique_filename}"
         
         # Save file
         os.makedirs("uploads/events", exist_ok=True)
-        with open(file_path, "wb") as buffer:
-            content = await event_flyer.read()
-            buffer.write(content)
-        
-        flyer_path = file_path
+        try:
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            
+            # Store only filename in database
+            flyer_filename = unique_filename
+            # Create URL for frontend access
+            flyer_url = f"/static/events/{unique_filename}"
+            
+        except Exception as e:
+            raise HTTPException(500, f"Failed to save file: {str(e)}")
 
     new_event = Event(
         event_name=event_name,
@@ -76,7 +89,7 @@ async def create_event(
         time=time,
         dress_code=dress_code,
         event_description=event_description,
-        event_flyer=flyer_path,
+        event_flyer=flyer_filename,  # Store filename only
         is_featured=False,  # Always False initially
         pending=True,
         
@@ -86,9 +99,16 @@ async def create_event(
         contact_link=contact_link if featured_requested else None,
     )
 
-    db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
+    try:
+        db.add(new_event)
+        db.commit()
+        db.refresh(new_event)
+    except Exception as e:
+        db.rollback()
+        # Clean up uploaded file if database operation fails
+        if flyer_filename and os.path.exists(f"uploads/events/{flyer_filename}"):
+            os.remove(f"uploads/events/{flyer_filename}")
+        raise HTTPException(500, f"Database error: {str(e)}")
 
     # Smart notification based on event type
     if featured_requested:
@@ -121,9 +141,9 @@ async def create_event(
     return {
         "message": "Event created successfully", 
         "event_id": new_event.id, 
-        "featured_requested": featured_requested
+        "featured_requested": featured_requested,
+        "image_url": flyer_url  # Include accessible URL
     }
-
 
 
 

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Password Reset OTP</title>
+    <style>
+        /* Reset styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        
+        /* Email container */
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        /* Header */
+        .email-header {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: #ffffff;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .email-header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .lock-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+        
+        /* Content */
+        .email-content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #333333;
+            text-align: left;
+        }
+        
+        .message {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #555555;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+        
+        /* OTP Display */
+        .otp-container {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 30px 0;
+            text-align: center;
+        }
+        
+        .otp-label {
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .otp-code {
+            color: #ffffff;
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .otp-expiry {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        
+        /* Warning section */
+        .warning-section {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: left;
+        }
+        
+        .warning-title {
+            color: #856404;
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .warning-title::before {
+            content: "⚠️";
+            margin-right: 8px;
+        }
+        
+        .warning-text {
+            color: #856404;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        /* Instructions */
+        .instructions {
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: left;
+        }
+        
+        .instructions h3 {
+            color: #007bff;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .instructions ol {
+            padding-left: 20px;
+            color: #555555;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+        }
+        
+        /* Footer */
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 30px 20px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .footer-text {
+            font-size: 12px;
+            color: #6c757d;
+            margin: 0;
+            line-height: 1.5;
+        }
+        
+        .support-link {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        .support-link:hover {
+            text-decoration: underline;
+        }
+        
+        /* Responsive design */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                margin: 10px;
+                border-radius: 4px;
+            }
+            
+            .email-header {
+                padding: 30px 15px;
+            }
+            
+            .email-header h1 {
+                font-size: 20px;
+            }
+            
+            .lock-icon {
+                font-size: 36px;
+            }
+            
+            .email-content {
+                padding: 30px 20px;
+            }
+            
+            .otp-code {
+                font-size: 28px;
+                letter-spacing: 4px;
+            }
+            
+            .instructions,
+            .warning-section {
+                margin: 20px 0;
+                padding: 15px;
+            }
+        }
+        
+        /* Outlook specific fixes */
+        table {
+            border-collapse: collapse;
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        
+        img {
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+            -ms-interpolation-mode: bicubic;
+        }
+    </style>
+    <!--[if mso]>
+    <style type="text/css">
+        .email-container {
+            width: 600px !important;
+        }
+    </style>
+    <![endif]-->
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="email-header">
+            <div class="lock-icon">🔐</div>
+            <h1>Password Reset Request</h1>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="email-content">
+            <div class="greeting">
+                Hello {{ recipient_name }},
+            </div>
+            
+            <div class="message">
+                We received a request to reset your password for your LagosTurnUp account. 
+                To proceed with the password reset, please use the verification code below:
+            </div>
+            
+            <!-- OTP Display -->
+            <div class="otp-container">
+                <div class="otp-label">Your Verification Code</div>
+                <div class="otp-code">{{ otp_code }}</div>
+                <div class="otp-expiry">
+                    This code expires in {{ expiration_minutes }} minutes
+                </div>
+            </div>
+            
+            <!-- Instructions -->
+            <div class="instructions">
+                <h3>How to Reset Your Password:</h3>
+                <ol>
+                    <li>Copy the verification code above</li>
+                    <li>Return to the password reset page</li>
+                    <li>Enter the verification code</li>
+                    <li>Create your new password</li>
+                    <li>Confirm your new password</li>
+                </ol>
+            </div>
+            
+            <!-- Warning -->
+            <div class="warning-section">
+                <div class="warning-title">Security Notice</div>
+                <div class="warning-text">
+                    If you didn't request this password reset, please ignore this email and your password will remain unchanged. 
+                    For your security, never share this verification code with anyone.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="email-footer">
+            <p class="footer-text">
+                This email was sent to {{ recipient_name }}.<br>
+                If you need help, contact our support team at 
+                <a href="mailto:support@lagosturnup.com" class="support-link">support@lagosturnup.com</a>
+                <br><br>
+                <strong>LagosTurnUp Team</strong><br>
+                Making Lagos events unforgettable
+            </p>
+        </div>
+    </div>
+</body>
+</html>

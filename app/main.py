@@ -22,6 +22,7 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
+
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 

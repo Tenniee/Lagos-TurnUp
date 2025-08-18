@@ -44,6 +44,8 @@ class Token(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
+    new_password: str
+    confirm_password: str
 
 class PasswordResetVerify(BaseModel):
     email: EmailStr
