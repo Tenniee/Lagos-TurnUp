@@ -31,6 +31,7 @@ async def google_login():
             detail=f"Failed to generate Google auth URL: {str(e)}"
         )
 
+
 @router.get("/callback")
 async def google_callback(
     code: str = Query(..., description="Authorization code from Google"),
@@ -60,33 +61,32 @@ async def google_callback(
         # Create JWT token using your existing system
         access_token = create_access_token(user_id={"sub": str(user.id)})
         
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,  # Changed from 'name'
-                "last_name": user.last_name,    # Added last_name
-                "role": user.role,              # Added role
-                "profile_picture": user.profile_picture  # Added profile_picture
-            },
-            "is_new_user": is_new,
-            "google_linked": True
-        }
+        # Get frontend URL from environment or use default
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        
+        # Redirect to frontend with token and user info
+        if is_new:
+            # New user - redirect to onboarding or welcome page
+            redirect_url = f"{frontend_url}/welcome?token={access_token}&new_user=true"
+        else:
+            # Existing user - redirect to dashboard
+            redirect_url = f"{frontend_url}/dashboard?token={access_token}"
+        
+        return RedirectResponse(url=redirect_url, status_code=302)
         
     except ValueError as e:
-        # Handle business logic errors (like duplicate emails)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        # Handle business logic errors - redirect to frontend with error
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        error_url = f"{frontend_url}/login?error=auth_failed&message={str(e)}"
+        return RedirectResponse(url=error_url, status_code=302)
+        
     except Exception as e:
-        # Handle unexpected errors
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Google authentication failed: {str(e)}"
-        )
+        # Handle unexpected errors - redirect to frontend with error
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        error_url = f"{frontend_url}/login?error=server_error&message=Authentication failed"
+        return RedirectResponse(url=error_url, status_code=302)
+        
+
 
 @router.post("/link" )
 async def link_google_account(
