@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from app.deps.deps import get_db
 from app.models.events import Event, Notification, Newsletter, Banner, Spot
 from app.schemas.events import EventCreate, NotificationOut, NewsletterCreate, EventUpdateSchema, BannerOut, BannerUpdate
@@ -317,11 +318,216 @@ def add_to_newsletter(data: NewsletterCreate, db: Session = Depends(get_db)):
 
     # Create and save
     new_entry = Newsletter(email=data.email)
-    db.add(new_entry)
-    db.commit()
-    db.refresh(new_entry)
+    
+    try:
+        db.add(new_entry)
+        db.commit()
+        db.refresh(new_entry)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    return {"message": "Email added to newsletter list", "email": new_entry.email}
+    # Extract email domain and user info for analytics
+    email_domain = data.email.split('@')[1] if '@' in data.email else 'unknown'
+    email_username = data.email.split('@')[0] if '@' in data.email else data.email
+    
+    # Determine engagement level based on email domain
+    high_engagement_domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']
+    business_domains = ['company.com', 'corp.com', 'inc.com', 'ltd.com']  # You can customize this
+    
+    engagement_level = "high"
+    if email_domain in high_engagement_domains:
+        engagement_level = "high"
+    elif any(keyword in email_domain for keyword in business_domains):
+        engagement_level = "business"
+    else:
+        engagement_level = "medium"
+
+    # Smart push notification for newsletter signup
+    push_notification(
+        db,
+        message=f"📧 New newsletter subscription: {data.email}",
+        type_="newsletter_signup",
+        entity_id=new_entry.id,
+        extra_data={
+            "email": data.email,
+            "email_domain": email_domain,
+            "email_username": email_username,
+            "engagement_level": engagement_level,
+            "subscription_source": "api",  # You can track different sources
+            "category": "newsletter",
+            "action": "newsletter_signup",
+            "is_new_subscriber": True,
+            "subscriber_id": new_entry.id,
+            "domain_type": "consumer" if email_domain in high_engagement_domains else "business" if any(keyword in email_domain for keyword in business_domains) else "other"
+        }
+    )
+
+    return {
+        "message": "Email added to newsletter list", 
+        "email": new_entry.email,
+        "subscriber_id": new_entry.id,
+        "engagement_level": engagement_level
+    }
+
+
+
+
+
+@router.get("/newsletter")
+def get_newsletter_subscriptions(
+    limit: Optional[int] = Query(None, ge=1, description="Limit number of results"),
+    offset: Optional[int] = Query(0, ge=0, description="Skip number of records"),
+    email_filter: Optional[str] = Query(None, description="Filter by email (partial match)"),
+    domain_filter: Optional[str] = Query(None, description="Filter by email domain"),
+    sort_by: Optional[str] = Query("newest", description="Sort by: newest, oldest, email"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all newsletter subscriptions with filtering and pagination options
+    
+    Args:
+        limit: Maximum number of subscriptions to return
+        offset: Number of subscriptions to skip
+        email_filter: Filter by email containing this text
+        domain_filter: Filter by specific email domain
+        sort_by: Sort order (newest, oldest, email)
+        db: Database session
+    
+    Returns:
+        Dictionary with subscriptions list and metadata
+    """
+    
+    # Base query
+    query = db.query(Newsletter)
+    
+    # Apply filters
+    if email_filter:
+        query = query.filter(Newsletter.email.ilike(f"%{email_filter}%"))
+    
+    if domain_filter:
+        query = query.filter(Newsletter.email.ilike(f"%@{domain_filter}%"))
+    
+    # Apply sorting
+    if sort_by == "newest":
+        query = query.order_by(desc(Newsletter.id))
+    elif sort_by == "oldest":
+        query = query.order_by(Newsletter.id)
+    elif sort_by == "email":
+        query = query.order_by(Newsletter.email)
+    else:
+        # Default to newest
+        query = query.order_by(desc(Newsletter.id))
+    
+    # Get total count before pagination
+    total_count = query.count()
+    
+    # Apply pagination
+    if offset:
+        query = query.offset(offset)
+    if limit:
+        query = query.limit(limit)
+    
+    # Execute query
+    subscriptions = query.all()
+    
+    # Extract email domains for analytics
+    email_domains = {}
+    engagement_stats = {"high": 0, "business": 0, "medium": 0}
+    
+    high_engagement_domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']
+    business_domains = ['company.com', 'corp.com', 'inc.com', 'ltd.com']
+    
+    for subscription in subscriptions:
+        # Extract domain
+        if '@' in subscription.email:
+            domain = subscription.email.split('@')[1]
+            email_domains[domain] = email_domains.get(domain, 0) + 1
+            
+            # Calculate engagement level
+            if domain in high_engagement_domains:
+                engagement_stats["high"] += 1
+            elif any(keyword in domain for keyword in business_domains):
+                engagement_stats["business"] += 1
+            else:
+                engagement_stats["medium"] += 1
+    
+    # Prepare response
+    response_data = {
+        "subscriptions": [
+            {
+                "id": sub.id,
+                "email": sub.email,
+                "domain": sub.email.split('@')[1] if '@' in sub.email else 'unknown',
+                "engagement_level": (
+                    "high" if '@' in sub.email and sub.email.split('@')[1] in high_engagement_domains
+                    else "business" if '@' in sub.email and any(keyword in sub.email.split('@')[1] for keyword in business_domains)
+                    else "medium"
+                )
+            }
+            for sub in subscriptions
+        ],
+        "metadata": {
+            "total_count": total_count,
+            "returned_count": len(subscriptions),
+            "offset": offset,
+            "limit": limit,
+            "has_more": total_count > (offset + len(subscriptions)) if limit else False
+        },
+        "analytics": {
+            "total_subscribers": total_count,
+            "top_domains": dict(sorted(email_domains.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "engagement_breakdown": engagement_stats,
+            "domain_diversity": len(email_domains)
+        }
+    }
+    return response_data
+
+
+
+
+
+@router.get("/newsletter/{subscription_id}")
+def get_newsletter_subscription_by_id(
+    subscription_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific newsletter subscription by ID
+    
+    Args:
+        subscription_id: ID of the newsletter subscription
+        db: Database session
+    
+    Returns:
+        Newsletter subscription details
+    """
+    
+    subscription = db.query(Newsletter).filter(Newsletter.id == subscription_id).first()
+    
+    if not subscription:
+        raise HTTPException(status_code=404, detail=f"Newsletter subscription with ID {subscription_id} not found")
+    
+    # Calculate engagement level
+    high_engagement_domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']
+    business_domains = ['company.com', 'corp.com', 'inc.com', 'ltd.com']
+    
+    domain = subscription.email.split('@')[1] if '@' in subscription.email else 'unknown'
+    
+    engagement_level = (
+        "high" if domain in high_engagement_domains
+        else "business" if any(keyword in domain for keyword in business_domains)
+        else "medium"
+    )
+    
+    return {
+        "id": subscription.id,
+        "email": subscription.email,
+        "domain": domain,
+        "engagement_level": engagement_level,
+        "email_username": subscription.email.split('@')[0] if '@' in subscription.email else subscription.email
+    }
+
+
 
 
 
