@@ -18,6 +18,8 @@ from app.crud import email
 
 from app.schemas.email import OTPEmailRequest
 
+from app.models.events import Newsletter
+
 logger = logging.getLogger(__name__)
 
 # Configure Resend
@@ -373,3 +375,166 @@ async def send_otp_email(db: Session, email_request: OTPEmailRequest) -> Dict[st
 
 
 
+
+
+
+
+
+
+
+async def send_broadcast_email(db: Session, email_request) -> Dict[str, Any]:
+    """Send broadcast email to all newsletter subscribers"""
+    print("BROADCAST EMAIL FUNCTION CALLED!")
+    email_logs = []
+    
+    try:
+        logger.info(f"=== Starting broadcast email process ===")
+        logger.info(f"Subject: {email_request.subject}")
+        logger.info(f"Sender: {email_request.sender_name}")
+
+        # Test 1: Get all newsletter subscribers
+        print("TEST 1: About to fetch newsletter subscribers")
+        logger.info(f"Fetching newsletter subscribers...")
+        try:
+            # Query all emails from newsletters table
+            newsletters = db.query(Newsletter).all()
+            
+            if not newsletters:
+                logger.warning("No newsletter subscribers found")
+                return {
+                    "message": "No newsletter subscribers found",
+                    "total_subscribers": 0,
+                    "emails_sent": 0,
+                    "failed_emails": 0,
+                    "status": "completed"
+                }
+            
+            print(f"TEST 1 SUCCESS: Found {len(newsletters)} subscribers")
+            logger.info(f"✓ Found {len(newsletters)} newsletter subscribers")
+        except Exception as fetch_error:
+            print(f"TEST 1 FAILED: {str(fetch_error)}")
+            logger.error(f"❌ Failed to fetch newsletter subscribers: {str(fetch_error)}")
+            raise fetch_error
+
+        # Test 2: Prepare template context
+        print("TEST 2: About to prepare template context")
+        logger.info(f"Preparing template context...")
+        try:
+            context = prepare_custom_email_context(
+                "Valued Subscriber",  # Generic recipient name since we only have emails
+                email_request.custom_message,
+                email_request.sender_name
+            )
+            print(f"TEST 2 SUCCESS: Context prepared: {context}")
+            logger.info(f"✓ Context prepared: {context}")
+        except Exception as context_error:
+            print(f"TEST 2 FAILED: {str(context_error)}")
+            logger.error(f"❌ Failed to prepare context: {str(context_error)}")
+            raise context_error
+        
+        # Test 3: Render template
+        print("TEST 3: About to render template")
+        logger.info(f"Rendering template...")
+        try:
+            html_content = render_template("custom_message.html", context)
+            print(f"TEST 3 SUCCESS: Template rendered. Length: {len(html_content)}")
+            logger.info(f"✓ Template rendered successfully. Length: {len(html_content)}")
+            logger.info(f"HTML preview: {html_content[:200]}...")
+        except Exception as template_error:
+            print(f"TEST 3 FAILED: {str(template_error)}")
+            logger.error(f"❌ Template rendering failed: {str(template_error)}")
+            raise template_error
+
+        # Test 4: Send emails to all subscribers
+        print("TEST 4: About to send emails to all subscribers")
+        logger.info(f"Sending emails to all subscribers...")
+        sent_count = 0
+        failed_count = 0
+
+        for newsletter in newsletters:
+            email_log = None  # Initialize email_log for each iteration
+            try:
+                print(f"Sending to: {newsletter.email}")
+                logger.info(f"Sending email to: {newsletter.email}")
+                
+                # Create email log for this subscriber
+                email_log = email.create_email_log(
+                    db=db,
+                    to_email=newsletter.email,
+                    from_email=settings.FROM_EMAIL,
+                    subject=email_request.subject,
+                    email_type="broadcast_email",
+                    recipient_name="Subscriber",
+                    sender_name=email_request.sender_name
+                )
+                email_logs.append(email_log)
+
+                # Send email
+                result = await send_email(
+                    to=newsletter.email,
+                    subject=email_request.subject,
+                    html_content=html_content,
+                    from_email=settings.FROM_EMAIL
+                )
+
+                # Update email log with success
+                email.update_email_status(
+                    db=db,
+                    email_id=email_log.id,
+                    status="sent",
+                    resend_id=result.get("resend_id")
+                )
+
+                sent_count += 1
+                print(f"SUCCESS: Email sent to {newsletter.email}")
+                logger.info(f"✓ Email sent successfully to {newsletter.email}")
+
+            except Exception as individual_error:
+                failed_count += 1
+                print(f"FAILED: {newsletter.email} - {str(individual_error)}")
+                logger.error(f"❌ Failed to send to {newsletter.email}: {str(individual_error)}")
+                
+                # Update email log with error if it was created
+                if email_log:
+                    email.update_email_status(
+                        db=db,
+                        email_id=email_log.id,
+                        status="failed",
+                        error_message=str(individual_error)
+                    )
+
+        print(f"TEST 4 COMPLETE: {sent_count} sent, {failed_count} failed")
+        logger.info(f"✓ Email sending completed: {sent_count} sent, {failed_count} failed")
+        
+        print("ALL TESTS PASSED - Returning success")
+        return {
+            "message": f"Broadcast email sent successfully",
+            "total_subscribers": len(newsletters),
+            "emails_sent": sent_count,
+            "failed_emails": failed_count,
+            "status": "completed",
+            "email_logs": [log.id for log in email_logs]
+        }
+        
+    except Exception as e:
+        print(f"EXCEPTION CAUGHT: {str(e)} (Type: {type(e).__name__})")
+        logger.error(f"❌ Unexpected error in send_broadcast_email: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error args: {e.args}")
+        
+        # Update email logs with error if we created any
+        for email_log in email_logs:
+            try:
+                email.update_email_status(
+                    db=db,
+                    email_id=email_log.id,
+                    status="failed",
+                    error_message=str(e)
+                )
+            except:
+                pass  # Don't fail on cleanup
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to send broadcast email: {str(e)}"
+        )

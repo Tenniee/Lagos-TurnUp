@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, EmailStr
 
 
@@ -69,3 +69,18 @@ class OTPRecordResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BroadcastEmailRequest(BaseModel):
+    subject: str
+    custom_message: str
+    sender_name: Optional[str] = "Lagos Turn Up Team"
+
+
+class BroadcastEmailResponse(BaseModel):
+    message: str
+    total_subscribers: int
+    emails_sent: int
+    failed_emails: int
+    status: str
+    email_logs: List[int]

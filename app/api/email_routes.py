@@ -9,7 +9,7 @@ import logging
 from app.deps.deps import get_db
 from app.schemas.email import (
     CustomEmailRequest, OTPEmailRequest, OTPVerificationRequest,
-    EmailResponse, OTPResponse, OTPVerificationResponse
+    EmailResponse, OTPResponse, OTPVerificationResponse, BroadcastEmailRequest, BroadcastEmailResponse
 )
 from app.service import email_service
 
@@ -47,6 +47,44 @@ async def send_custom_email_endpoint(
         logger.error(f"Error type: {type(e).__name__}")
         logger.error(f"Error args: {e.args}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+
+# New endpoint for broadcast emails
+@router.post("/broadcast-email", response_model=BroadcastEmailResponse)
+async def broadcast_email_endpoint(
+    email_request: BroadcastEmailRequest,
+    db: Session = Depends(get_db)
+):
+    """Send broadcast email to all newsletter subscribers"""
+    try:
+        logger.info(f"=== Broadcast email route handler called ===")
+        logger.info(f"Request received: {email_request}")
+        
+        # Log individual fields
+        logger.info(f"subject: {getattr(email_request, 'subject', 'MISSING')}")
+        logger.info(f"sender_name: {getattr(email_request, 'sender_name', 'MISSING')}")
+        logger.info(f"custom_message: {getattr(email_request, 'custom_message', 'MISSING')[:100]}...")
+        
+        logger.info(f"About to call send_broadcast_email function...")
+
+        # Send broadcast email
+        result = await email_service.send_broadcast_email(db, email_request)
+        logger.info(f"send_broadcast_email completed: {result}")
+        return BroadcastEmailResponse(**result)
+    except Exception as e:
+        logger.error(f"❌ Broadcast email route handler error: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 @router.post("/send-otp-email", response_model=OTPResponse)
