@@ -1486,6 +1486,97 @@ def delete_banner(
 
 
 
+@router.patch("/banners/{banner_id}/approve", response_model=BannerOut)
+def approve_banner(
+    banner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    banner = db.query(Banner).filter(Banner.id == banner_id).first()
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    if banner.is_approved:
+        raise HTTPException(status_code=400, detail="Banner is already approved")
+    
+    # Store banner data for notification context
+    banner_name = banner.name
+    has_link = bool(banner.banner_link)
+    banner_link = banner.banner_link
+    
+    # Calculate file size if possible
+    file_size_mb = None
+    if banner.banner_image:
+        file_path = banner.banner_image.lstrip('/')
+        if os.path.exists(file_path):
+            try:
+                file_size_mb = round(os.path.getsize(file_path) / (1024 * 1024), 2)
+            except Exception:
+                file_size_mb = None
+    
+    # Update approval status
+    banner.is_approved = True
+    
+    try:
+        db.commit()
+        db.refresh(banner)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    # Smart notification based on banner type - approval is celebration worthy
+    if has_link:
+        # Promotional banner approved - HIGH ENGAGEMENT
+        push_notification(
+            db,
+            message=f"🎉 PROMOTIONAL banner '{banner_name}' APPROVED & LIVE! Ready for clicks! 🚀",
+            type_="promotional_banner_approved",
+            entity_id=banner.id,
+            extra_data={
+                "banner_name": banner_name,
+                "has_link": True,
+                "banner_link": banner_link,
+                "was_pending": True,
+                "now_live": True,
+                "file_size_mb": file_size_mb,
+                "admin_action": True,
+                "approved_by": getattr(user, 'id', 'admin'),
+                "banner_type": "promotional",
+                "action": "promotional_banner_approved",
+                "impact_level": "high",
+                "status_change": "pending_to_live",
+                "engagement_potential": "high",
+                "revenue_potential": "high" if has_link else "none"
+            }
+        )
+    else:
+        # Standard banner approved - MEDIUM ENGAGEMENT
+        push_notification(
+            db,
+            message=f"✅ Banner '{banner_name}' APPROVED & LIVE! 🎊",
+            type_="banner_approved",
+            entity_id=banner.id,
+            extra_data={
+                "banner_name": banner_name,
+                "has_link": False,
+                "was_pending": True,
+                "now_live": True,
+                "file_size_mb": file_size_mb,
+                "admin_action": True,
+                "approved_by": getattr(user, 'id', 'admin'),
+                "banner_type": "standard",
+                "action": "banner_approved",
+                "impact_level": "medium",
+                "status_change": "pending_to_live",
+                "engagement_potential": "medium",
+                "revenue_potential": "none"
+            }
+        )
+    
+    return banner
+
+
+
+
 
 
 @router.patch("/banners/{banner_id}/unapprove", response_model=BannerOut)
