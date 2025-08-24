@@ -32,17 +32,41 @@ def create_event(db: Session, data, flyer_file):
     return new_event
 
 def push_notification(db: Session, message: str, type_: str, entity_id: int = None, extra_data: dict = None):
-    notification = Notification(
-        message=message,
-        type=type_,
-        entity_id=entity_id,
-        extra_data=extra_data or {}
-    )
-    db.add(notification)
-    db.commit()
-    db.refresh(notification)
-    return notification
+    """Create and save a notification to the database"""
+    
+    print(f"Push notification created: {message}")
+    
+    try:
+        # Create the actual Notification database object
+        notification = Notification(
+            message=message,
+            type=type_,
+            entity_id=entity_id,
+            extra_data=extra_data or {}
+        )
+        
+        print(f"Notification object created")
+        
+        # Add to database session
+        db.add(notification)
+        print("Added to session")
+        
+        # Commit the transaction
+        db.commit()
+        print("Committed to database")
+        
+        # Refresh to get the ID and other auto-generated fields
+        db.refresh(notification)
+        print(f"Notification saved with ID: {notification.id}")
+        
+        return notification  # Return the SQLAlchemy object, not a dict!
+        
+    except Exception as e:
+        print(f"Error creating notification: {e}")
+        db.rollback()
+        raise
 
+        
 
 def create_spot(db: Session, data, cover_image_file):
     # Generate unique filename

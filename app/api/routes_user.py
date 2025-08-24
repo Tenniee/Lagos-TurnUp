@@ -78,10 +78,18 @@ async def create_new_user(
     last_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    secret_key: str = Form(...),  # Added secret key requirement
     role: str = Form("sub-admin"),
     profile_picture: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
+    # Validate secret key first
+    if secret_key != "TURNUP_LAGOS":
+        raise HTTPException(
+            status_code=401, 
+            detail="Unauthorized: Invalid secret key"
+        )
+    
     # Check if email exists
     existing = db.query(User).filter(User.email == email).first()
     if existing:
@@ -120,7 +128,6 @@ async def create_new_user(
         "role": new_user.role,
         "profile_picture": new_user.profile_picture
     }
-
 
 
 

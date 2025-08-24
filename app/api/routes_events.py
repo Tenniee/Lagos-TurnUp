@@ -15,6 +15,10 @@ import uuid
 import os
 from datetime import date
 
+
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -194,37 +198,47 @@ def get_events(
 
 
 
-@router.put("/events/{event_id}/approve-featured")
+@router.put("/events/{event_id}/approve-featured") 
 async def approve_featured_event(
-    event_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_active_user)  # Only admins can do this
-):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(404, "Event not found")
-    
-    if not event.featured_requested:
-        raise HTTPException(400, "Event was not requested to be featured")
-    
-    event.is_featured = True
-    db.commit()
-    db.refresh(event)
-    
-    # Notification that event is now featured
-    push_notification(
-        db,
-        message=f"🎉 Event '{event.event_name}' is now FEATURED!",
-        type_="event_featured",
-        entity_id=event.id,
-        extra_data={
-            "event_name": event.event_name,
-            "state": event.state,
-            "venue": event.venue
-        }
-    )
-    
-    return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
+    event_id: int, 
+    db: Session = Depends(get_db), 
+    user: User = Depends(get_active_user)
+): 
+    try:
+        event = db.query(Event).filter(Event.id == event_id).first() 
+        if not event: 
+            raise HTTPException(404, "Event not found") 
+         
+        if not event.featured_requested: 
+            raise HTTPException(400, "Event was not requested to be featured") 
+         
+        event.is_featured = True 
+        
+        # Create notification in same transaction
+        notification = push_notification(
+            db, 
+            message=f"🎉 Event '{event.event_name}' is now FEATURED!", 
+            type_="event_featured", 
+            entity_id=event.id, 
+            extra_data={
+                "event_name": event.event_name, 
+                "state": event.state, 
+                "venue": event.venue 
+            }
+        )
+        
+        # Commit both changes together
+        db.commit() 
+        db.refresh(event)
+        
+        return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to approve featured event: {e}")
+        raise
+
+
 
 
 # Get featured requests for admin
@@ -1932,50 +1946,6 @@ import uuid
 from fastapi import Form, File, UploadFile, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-# Push notification helper function
-def push_notification(
-    db: Session,
-    message: str,
-    type_: str,
-    entity_id: int,
-    extra_data: dict = None
-):
-    """
-    Create a push notification for spot updates
-    
-    Args:
-        db: Database session
-        message: Notification message
-        type_: Type of notification (spot_updated, spot_edited, etc.)
-        entity_id: ID of the related spot
-        extra_data: Additional data dict with spot details
-    """
-    try:
-        # Import your push notification model here
-        # from models import PushNotification  # Adjust import based on your structure
-        
-        # Create the notification record (adapt to your model structure)
-        notification_data = {
-            "message": message,
-            "type": type_,
-            "entity_id": entity_id,
-            "extra_data": extra_data or {},
-            "created_at": "NOW()",  # or datetime.utcnow() depending on your setup
-            "is_sent": False
-        }
-        
-        # Add to database (implement based on your model)
-        # push_notif = PushNotification(**notification_data)
-        # db.add(push_notif)
-        # db.commit()
-        
-        print(f"Push notification created: {message}")
-        return notification_data
-        
-    except Exception as e:
-        print(f"Error creating push notification: {e}")
-        # Don't let notification failure break the main operation
-        return None
 
 @router.put("/spots/edit/{spot_id}")
 async def edit_spot_endpoint(
