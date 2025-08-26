@@ -32,19 +32,23 @@ class EventOut(BaseModel):
     event_description: Optional[str] = None
     event_flyer: Optional[str] = None
     is_featured: bool = False
-    pending: bool = True  # Add this line
+    pending: bool = True
 
     @computed_field
     @property
     def flyer_url(self) -> Optional[str]:
         if self.event_flyer:
-            base_url = os.getenv("BASE_URL", "http://localhost:8000")
-            return f"{base_url}{self.event_flyer}"
+            # If it's already a complete URL (starts with http/https), return as-is
+            if self.event_flyer.startswith(('http://', 'https://')):
+                return self.event_flyer
+            # Otherwise, it's a relative path, prepend base URL
+            else:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000")
+                return f"{base_url}{self.event_flyer}"
         return None
 
     class Config:
         from_attributes = True
-
     
 
 
