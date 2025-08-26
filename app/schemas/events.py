@@ -100,12 +100,14 @@ class BannerOut(BaseModel):
     @property
     def banner_url(self) -> Optional[str]:
         if self.banner_image:
-            base_url = os.getenv("BASE_URL", "http://localhost:8000")
-            return f"{base_url}{self.banner_image}"
+            # If it's already a complete URL (starts with http/https), return as-is
+            if self.banner_image.startswith(('http://', 'https://')):
+                return self.banner_image
+            # Otherwise, it's a relative path, prepend base URL
+            else:
+                base_url = os.getenv("BASE_URL", "http://localhost:8000")
+                return f"{base_url}{self.banner_image}"
         return None
-
-    class Config:
-        from_attributes = True
 
     
 
