@@ -14,6 +14,7 @@ from app.models.user import User
 import uuid
 import os
 from datetime import date
+from app.utils.cloudinary import CloudinaryService
 
 
 import logging
@@ -54,37 +55,29 @@ async def create_event(
         if not contact_link:
             raise HTTPException(400, "Contact link is required when requesting featured event")
 
-    flyer_filename = None
     flyer_url = None
+    flyer_public_id = None
     
     if event_flyer:
         # Validate file type
         if not event_flyer.content_type.startswith('image/'):
             raise HTTPException(400, "File must be an image")
         
-        # Validate file size (optional - add reasonable limit)
+        # Validate file size
         content = await event_flyer.read()
         if len(content) > 5 * 1024 * 1024:  # 5MB limit
             raise HTTPException(400, "File size too large. Maximum 5MB allowed.")
         
-        # Generate unique filename
-        file_extension = event_flyer.filename.split('.')[-1].lower()
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = f"uploads/events/{unique_filename}"
-        
-        # Save file
-        os.makedirs("uploads/events", exist_ok=True)
+        # Upload to Cloudinary
         try:
-            with open(file_path, "wb") as buffer:
-                buffer.write(content)
-            
-            # Store only filename in database
-            flyer_filename = unique_filename
-            # Create URL for frontend access
-            flyer_url = f"/static/events/{unique_filename}"
-            
+            cloudinary_result = CloudinaryService.upload_event_image(
+                file_content=content,
+                filename=event_flyer.filename or "event_flyer"
+            )
+            flyer_url = cloudinary_result["url"]
+            flyer_public_id = cloudinary_result["public_id"]
         except Exception as e:
-            raise HTTPException(500, f"Failed to save file: {str(e)}")
+            raise HTTPException(500, f"Image upload failed: {str(e)}")
 
     new_event = Event(
         event_name=event_name,
@@ -94,7 +87,8 @@ async def create_event(
         time=time,
         dress_code=dress_code,
         event_description=event_description,
-        event_flyer=flyer_filename,  # Store filename only
+        event_flyer=flyer_url,  # Store Cloudinary URL
+        event_flyer_public_id=flyer_public_id,  # Store public_id for deletion
         is_featured=False,  # Always False initially
         pending=True,
         
@@ -110,9 +104,9 @@ async def create_event(
         db.refresh(new_event)
     except Exception as e:
         db.rollback()
-        # Clean up uploaded file if database operation fails
-        if flyer_filename and os.path.exists(f"uploads/events/{flyer_filename}"):
-            os.remove(f"uploads/events/{flyer_filename}")
+        # Clean up uploaded image if database operation fails
+        if flyer_public_id:
+            CloudinaryService.delete_image(flyer_public_id)
         raise HTTPException(500, f"Database error: {str(e)}")
 
     # Smart notification based on event type
@@ -147,7 +141,7 @@ async def create_event(
         "message": "Event created successfully", 
         "event_id": new_event.id, 
         "featured_requested": featured_requested,
-        "image_url": flyer_url  # Include accessible URL
+        "image_url": flyer_url
     }
 
 
@@ -624,30 +618,43 @@ async def edit_event(
     # Handle flyer upload if provided
     flyer_updated = False
     if event_flyer:
-        # Delete old flyer file if it exists
-        if event.event_flyer:
-            old_file_path = event.event_flyer.lstrip('/')
-            if os.path.exists(old_file_path):
-                os.remove(old_file_path)
-        
-        # Validate and save new flyer
+        # Validate file type
         if not event_flyer.content_type.startswith('image/'):
             raise HTTPException(400, "File must be an image")
         
-        file_extension = event_flyer.filename.split('.')[-1]
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = f"uploads/events/{unique_filename}"
+        # Validate file size
+        content = await event_flyer.read()
+        if len(content) > 5 * 1024 * 1024:  # 5MB limit
+            raise HTTPException(400, "File size too large. Maximum 5MB allowed.")
         
-        os.makedirs("uploads/events", exist_ok=True)
-        with open(file_path, "wb") as buffer:
-            content = await event_flyer.read()
-            buffer.write(content)
+        # Upload new image to Cloudinary
+        cloudinary_result = None
+        try:
+            cloudinary_result = CloudinaryService.upload_event_image(
+                file_content=content,
+                filename=event_flyer.filename or "event_flyer"
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Image upload failed: {str(e)}")
         
-        event.event_flyer = f"/uploads/events/{unique_filename}"
+        # Delete old image from Cloudinary if it exists
+        if hasattr(event, 'event_flyer_public_id') and event.event_flyer_public_id:
+            CloudinaryService.delete_image(event.event_flyer_public_id)
+        
+        # Update event with new Cloudinary info
+        event.event_flyer = cloudinary_result["url"]
+        event.event_flyer_public_id = cloudinary_result["public_id"]
         flyer_updated = True
 
-    db.commit()
-    db.refresh(event)
+    try:
+        db.commit()
+        db.refresh(event)
+    except Exception as e:
+        db.rollback()
+        # Clean up new Cloudinary image if database operation fails
+        if event_flyer and cloudinary_result and cloudinary_result.get("public_id"):
+            CloudinaryService.delete_image(cloudinary_result["public_id"])
+        raise HTTPException(500, f"Database error: {str(e)}")
     
     # Smart notification system based on what changed
     notification_sent = False
@@ -758,6 +765,8 @@ async def edit_event(
             )
     
     return {"message": "Event updated successfully", "event": event}
+
+
 
 
 
@@ -920,16 +929,14 @@ def delete_event(
     was_pending = getattr(event, 'pending', False)
     had_featured_request = getattr(event, 'featured_requested', False)
     contact_method = getattr(event, 'contact_method', None)
+    flyer_public_id = getattr(event, 'event_flyer_public_id', None)
     
-    # Clean up event flyer file if it exists
-    if hasattr(event, 'event_flyer') and event.event_flyer:
-        flyer_path = event.event_flyer.lstrip('/')
-        if os.path.exists(flyer_path):
-            try:
-                os.remove(flyer_path)
-            except Exception as e:
-                # Log error but don't fail deletion
-                print(f"Failed to delete flyer file: {e}")
+    # Delete image from Cloudinary if public_id exists
+    if flyer_public_id:
+        success = CloudinaryService.delete_image(flyer_public_id)
+        if not success:
+            # Log warning but don't fail the request
+            print(f"Warning: Failed to delete event flyer from Cloudinary: {flyer_public_id}")
 
     # Delete the event
     db.delete(event)
@@ -1053,7 +1060,6 @@ def delete_event(
 
 
 
-
 def check_approved_banner_limit(db: Session, exclude_id: Optional[int] = None):
     query = db.query(Banner).filter(Banner.is_approved == True)
     if exclude_id:
@@ -1077,6 +1083,8 @@ async def save_banner_file(file: UploadFile) -> str:
     
     return f"/uploads/banners/{unique_filename}"
 
+
+
 @router.post("/banners/create", response_model=BannerOut)
 async def add_banner(
     name: str = Form(...),
@@ -1089,20 +1097,31 @@ async def add_banner(
     if not banner.content_type.startswith('image/'):
         raise HTTPException(400, "File must be an image")
     
-    # Validate file size (reasonable limit for banners)
-    content = await banner.read()
-    if len(content) > 10 * 1024 * 1024:  # 10MB limit for banners
+    # Read file content
+    try:
+        content = await banner.read()
+    except Exception as e:
+        raise HTTPException(400, f"Error reading file: {str(e)}")
+    
+    # Validate file size (10MB limit for banners)
+    if len(content) > 10 * 1024 * 1024:
         raise HTTPException(400, "Banner file too large. Maximum 10MB allowed.")
     
-    # Reset file pointer for save_banner_file function
-    banner.file.seek(0)
+    # Upload to Cloudinary
+    cloudinary_result = None
+    try:
+        cloudinary_result = CloudinaryService.upload_banner_image(
+            file_content=content,
+            filename=banner.filename or "banner"
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Image upload failed: {str(e)}")
     
-    # Save the banner image
-    banner_path = await save_banner_file(banner)
-    
+    # Create banner record in database
     new_banner = Banner(
         name=name,
-        banner_image=banner_path,
+        banner_image=cloudinary_result["url"],  # Store Cloudinary URL
+        banner_public_id=cloudinary_result["public_id"],  # Store public_id for deletion
         banner_link=banner_link if banner_link else None,
         is_approved=False  # Default to not approved
     )
@@ -1112,9 +1131,11 @@ async def add_banner(
         db.commit()
         db.refresh(new_banner)
     except Exception as e:
-        # Clean up uploaded file if database operation fails
-        if banner_path and os.path.exists(banner_path):
-            os.remove(banner_path)
+        # Clean up uploaded image if database operation fails
+        if cloudinary_result and cloudinary_result.get("public_id"):
+            CloudinaryService.delete_image(cloudinary_result["public_id"])
+        
+        db.rollback()
         raise HTTPException(500, f"Database error: {str(e)}")
 
     # Enhanced smart notification based on banner characteristics
@@ -1122,7 +1143,6 @@ async def add_banner(
     file_size_mb = round(len(content) / (1024 * 1024), 2)
     
     if has_link:
-        # Banner with link - likely promotional/commercial
         push_notification(
             db,
             message=f"🎨 New PROMOTIONAL banner '{new_banner.name}' created - pending approval",
@@ -1141,7 +1161,6 @@ async def add_banner(
             }
         )
     else:
-        # Regular banner without link
         push_notification(
             db,
             message=f"🎨 New banner '{new_banner.name}' created - pending approval",
@@ -1162,6 +1181,9 @@ async def add_banner(
     return new_banner
 
 
+
+
+
 @router.put("/banners/{banner_id}", response_model=BannerOut)
 async def edit_banner(
     banner_id: int,
@@ -1177,7 +1199,7 @@ async def edit_banner(
     
     # Store original values for comparison
     original_name = existing_banner.name
-    original_image_path = existing_banner.banner_image
+    original_image_url = existing_banner.banner_image
     has_link = bool(existing_banner.banner_link)
     is_approved = getattr(existing_banner, 'is_approved', False)
     
@@ -1203,25 +1225,24 @@ async def edit_banner(
         
         file_size_mb = round(len(content) / (1024 * 1024), 2)
         
-        # Reset file pointer for save function
-        banner.file.seek(0)
-        
-        # Delete old file if it exists
-        if existing_banner.banner_image:
-            old_file_path = existing_banner.banner_image.lstrip('/')
-            if os.path.exists(old_file_path):
-                try:
-                    os.remove(old_file_path)
-                except Exception as e:
-                    print(f"Failed to delete old banner file: {e}")
-        
-        # Save new file
+        # Upload new image to Cloudinary
+        cloudinary_result = None
         try:
-            banner_path = await save_banner_file(banner)
-            existing_banner.banner_image = banner_path
-            changes_made.append("image")
+            cloudinary_result = CloudinaryService.upload_banner_image(
+                file_content=content,
+                filename=banner.filename or "banner"
+            )
         except Exception as e:
-            raise HTTPException(500, f"Failed to save banner file: {str(e)}")
+            raise HTTPException(500, f"Image upload failed: {str(e)}")
+        
+        # Delete old image from Cloudinary if it exists
+        if existing_banner.banner_public_id:
+            CloudinaryService.delete_image(existing_banner.banner_public_id)
+        
+        # Update banner with new Cloudinary info
+        existing_banner.banner_image = cloudinary_result["url"]
+        existing_banner.banner_public_id = cloudinary_result["public_id"]
+        changes_made.append("image")
     
     # Only commit and notify if changes were made
     if changes_made:
@@ -1229,9 +1250,9 @@ async def edit_banner(
             db.commit()
             db.refresh(existing_banner)
         except Exception as e:
-            # Clean up new file if database operation fails
-            if banner and 'banner_path' in locals() and os.path.exists(banner_path):
-                os.remove(banner_path)
+            # Clean up new Cloudinary image if database operation fails
+            if banner and cloudinary_result and cloudinary_result.get("public_id"):
+                CloudinaryService.delete_image(cloudinary_result["public_id"])
             raise HTTPException(500, f"Database error: {str(e)}")
         
         # Smart notification based on what changed and banner status
@@ -1334,7 +1355,6 @@ async def edit_banner(
 
 
 
-
 @router.delete("/banners/{banner_id}")
 def delete_banner(
     banner_id: int,
@@ -1373,30 +1393,18 @@ def delete_banner(
     
     # Store banner data for notification before deletion
     banner_name = banner.name
-    banner_image_path = banner.banner_image
+    banner_image_url = banner.banner_image
+    banner_public_id = banner.banner_public_id
     has_link = bool(banner.banner_link)
     banner_link = banner.banner_link
     is_approved = getattr(banner, 'is_approved', False)
     
-    # Calculate file size if file exists
-    file_size_mb = None
-    if banner_image_path:
-        file_path = banner_image_path.lstrip('/')
-        if os.path.exists(file_path):
-            try:
-                file_size_mb = round(os.path.getsize(file_path) / (1024 * 1024), 2)
-            except Exception:
-                file_size_mb = None
-    
-    # Delete file if it exists
-    if banner.banner_image:
-        file_path = banner.banner_image.lstrip('/')
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception as e:
-                # Log error but don't fail deletion
-                print(f"Failed to delete banner file: {e}")
+    # Delete image from Cloudinary if public_id exists
+    if banner_public_id:
+        success = CloudinaryService.delete_image(banner_public_id)
+        if not success:
+            # Log warning but don't fail the request
+            print(f"Warning: Failed to delete image from Cloudinary: {banner_public_id}")
     
     # Delete the banner from database
     db.delete(banner)
@@ -1415,7 +1423,6 @@ def delete_banner(
                 "had_link": True,
                 "banner_link": banner_link,
                 "was_approved": True,
-                "file_size_mb": file_size_mb,
                 "admin_action": True,
                 "deleted_by": getattr(user, 'id', 'admin'),
                 "banner_type": "promotional",
@@ -1435,7 +1442,6 @@ def delete_banner(
                 "banner_name": banner_name,
                 "had_link": has_link,
                 "was_approved": True,
-                "file_size_mb": file_size_mb,
                 "admin_action": True,
                 "deleted_by": getattr(user, 'id', 'admin'),
                 "banner_type": "standard",
@@ -1456,7 +1462,6 @@ def delete_banner(
                 "had_link": True,
                 "banner_link": banner_link,
                 "was_approved": False,
-                "file_size_mb": file_size_mb,
                 "admin_action": True,
                 "deleted_by": getattr(user, 'id', 'admin'),
                 "banner_type": "promotional",
@@ -1476,7 +1481,6 @@ def delete_banner(
                 "banner_name": banner_name,
                 "had_link": has_link,
                 "was_approved": False,
-                "file_size_mb": file_size_mb,
                 "admin_action": True,
                 "deleted_by": getattr(user, 'id', 'admin'),
                 "banner_type": "standard",
@@ -1492,7 +1496,6 @@ def delete_banner(
         "was_approved": is_approved,
         "had_link": has_link
     }
-
 
 
 
@@ -1727,7 +1730,8 @@ async def create_spot_endpoint(
     if spot_type not in valid_types:
         raise HTTPException(400, f"Invalid spot type. Must be one of: {', '.join(valid_types)}")
     
-    cover_image_path = None
+    cover_image_url = None
+    cover_image_public_id = None
     file_size_mb = None
     has_image = False
     
@@ -1744,20 +1748,17 @@ async def create_spot_endpoint(
         file_size_mb = round(len(content) / (1024 * 1024), 2)
         has_image = True
         
-        # Generate unique filename
-        file_extension = cover_image.filename.split('.')[-1].lower()
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = f"uploads/spots/{unique_filename}"
-        
-        # Save file
-        os.makedirs("uploads/spots", exist_ok=True)
+        # Upload to Cloudinary
         try:
-            with open(file_path, "wb") as buffer:
-                buffer.write(content)
-            
-            cover_image_path = file_path
+            cloudinary_result = CloudinaryService.upload_spot_image(
+                file_content=content,
+                filename=cover_image.filename or "spot_image",
+                spot_name=location_name.replace(" ", "_")
+            )
+            cover_image_url = cloudinary_result["url"]
+            cover_image_public_id = cloudinary_result["public_id"]
         except Exception as e:
-            raise HTTPException(500, f"Failed to save image: {str(e)}")
+            raise HTTPException(500, f"Image upload failed: {str(e)}")
 
     new_spot = Spot(
         location_name=location_name,
@@ -1765,7 +1766,8 @@ async def create_spot_endpoint(
         state=state,
         spot_type=spot_type,
         additional_info=additional_info,
-        cover_image=cover_image_path,
+        cover_image=cover_image_url,  # Store Cloudinary URL
+        cover_image_public_id=cover_image_public_id,  # Store public_id for deletion
     )
 
     try:
@@ -1773,9 +1775,10 @@ async def create_spot_endpoint(
         db.commit()
         db.refresh(new_spot)
     except Exception as e:
-        # Clean up uploaded file if database operation fails
-        if cover_image_path and os.path.exists(cover_image_path):
-            os.remove(cover_image_path)
+        db.rollback()
+        # Clean up uploaded image if database operation fails
+        if cover_image_public_id:
+            CloudinaryService.delete_image(cover_image_public_id)
         raise HTTPException(500, f"Database error: {str(e)}")
 
     # Smart notification based on spot type and characteristics
@@ -1885,7 +1888,8 @@ async def create_spot_endpoint(
         "spot_id": new_spot.id,
         "spot_type": spot_type,
         "location": location_full,
-        "has_image": has_image
+        "has_image": has_image,
+        "image_url": cover_image_url
     }
 
 
@@ -1986,11 +1990,13 @@ async def edit_spot_endpoint(
     if existing_spot.spot_type != spot_type:
         changes_made.append("spot type")
     if existing_spot.additional_info != additional_info:
-        changes_made.append("additional info")
+        changes_made.append("additional_info")
     
     # Handle image update if provided
     image_updated = False
     file_size_mb = None
+    new_cover_image_url = existing_spot.cover_image
+    new_cover_image_public_id = existing_spot.cover_image_public_id
     
     if cover_image:
         # Validate file type
@@ -2004,43 +2010,51 @@ async def edit_spot_endpoint(
         
         file_size_mb = round(len(content) / (1024 * 1024), 2)
         
-        # Delete old image if it exists
-        if existing_spot.cover_image:
-            old_file_path = f"uploads/spots/{existing_spot.cover_image.split('/')[-1]}"
-            if os.path.exists(old_file_path):
-                os.remove(old_file_path)
-        
-        # Generate unique filename for new image
-        file_extension = cover_image.filename.split('.')[-1].lower()
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = f"uploads/spots/{unique_filename}"
-        
-        # Save new file
-        os.makedirs("uploads/spots", exist_ok=True)
+        # Upload new image to Cloudinary
         try:
-            with open(file_path, "wb") as buffer:
-                buffer.write(content)
-            
-            existing_spot.cover_image = file_path
+            cloudinary_result = CloudinaryService.upload_spot_image(
+                file_content=content,
+                filename=cover_image.filename or "spot_image",
+                spot_name=location_name.replace(" ", "_")
+            )
+            new_cover_image_url = cloudinary_result["url"]
+            new_cover_image_public_id = cloudinary_result["public_id"]
             changes_made.append("cover image")
             image_updated = True
         except Exception as e:
-            raise HTTPException(500, f"Failed to save image: {str(e)}")
+            raise HTTPException(500, f"Image upload failed: {str(e)}")
     
-    # Update other fields
+    # Update fields
     existing_spot.location_name = location_name
     existing_spot.city = city
     existing_spot.state = state
     existing_spot.spot_type = spot_type
     existing_spot.additional_info = additional_info
+    existing_spot.cover_image = new_cover_image_url
+    existing_spot.cover_image_public_id = new_cover_image_public_id
 
     try:
         db.commit()
         db.refresh(existing_spot)
+        
+        # Delete old Cloudinary image if a new one was uploaded successfully
+        if image_updated and existing_spot.cover_image_public_id != new_cover_image_public_id:
+            old_public_id = getattr(existing_spot, 'cover_image_public_id', None)
+            if old_public_id and old_public_id != new_cover_image_public_id:
+                try:
+                    CloudinaryService.delete_image(old_public_id)
+                except Exception as e:
+                    # Log error but don't fail the update
+                    print(f"Failed to delete old Cloudinary image: {str(e)}")
+        
     except Exception as e:
-        # Clean up uploaded file if database operation fails
-        if image_updated and existing_spot.cover_image and os.path.exists(existing_spot.cover_image):
-            os.remove(existing_spot.cover_image)
+        db.rollback()
+        # Clean up newly uploaded image if database operation fails
+        if image_updated and new_cover_image_public_id:
+            try:
+                CloudinaryService.delete_image(new_cover_image_public_id)
+            except Exception as cleanup_e:
+                print(f"Failed to cleanup Cloudinary image: {str(cleanup_e)}")
         raise HTTPException(500, f"Database error: {str(e)}")
 
     # Smart push notification based on spot type and changes
@@ -2160,5 +2174,6 @@ async def edit_spot_endpoint(
         "spot_type": spot_type,
         "location": location_full,
         "changes_made": changes_made,
-        "image_updated": image_updated
+        "image_updated": image_updated,
+        "image_url": new_cover_image_url
     }
