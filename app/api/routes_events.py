@@ -1898,6 +1898,153 @@ async def create_spot_endpoint(
 
 
 
+
+
+
+
+
+@router.delete("/spots/{spot_id}")
+async def delete_spot_endpoint(
+    spot_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    # Get the spot from database
+    spot = db.query(Spot).filter(Spot.id == spot_id).first()
+    
+    if not spot:
+        raise HTTPException(404, "Spot not found")
+    
+    # Optional: Check if user owns the spot or has permission to delete
+    # Uncomment if you want ownership validation
+    # if spot.created_by != user.id:  # Assuming you have a created_by field
+    #     raise HTTPException(403, "Not authorized to delete this spot")
+    
+    # Store spot data for notification and cleanup
+    location_name = spot.location_name
+    city = spot.city
+    state = spot.state
+    spot_type = spot.spot_type
+    location_full = f"{location_name}, {city}, {state}"
+    cover_image_public_id = spot.cover_image_public_id
+    had_image = bool(spot.cover_image)
+    
+    # Define spot type emojis
+    spot_emojis = {
+        "hotel": "🏨",
+        "club": "🎭", 
+        "foodspot": "🍽️",
+        "beach": "🏖️"
+    }
+    
+    spot_emoji = spot_emojis.get(spot_type, "📍")
+    
+    try:
+        # Delete the spot from database first
+        db.delete(spot)
+        db.commit()
+        
+        # Clean up Cloudinary image if it exists
+        if cover_image_public_id:
+            try:
+                CloudinaryService.delete_image(cover_image_public_id)
+            except Exception as e:
+                # Log the error but don't fail the deletion
+                print(f"Warning: Failed to delete image from Cloudinary: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+    # Smart notification based on spot type
+    if spot_type == "club":
+        push_notification(
+            db,
+            message=f"🎭 CLUB spot '{location_name}' in {city}, {state} has been removed",
+            type_="club_spot_deleted",
+            entity_id=spot_id,
+            extra_data={
+                "location_name": location_name,
+                "city": city,
+                "state": state,
+                "spot_type": "club",
+                "location_full": location_full,
+                "had_image": had_image,
+                "deleted_by": getattr(user, 'id', 'user'),
+                "category": "nightlife",
+                "action": "club_spot_deleted"
+            }
+        )
+    elif spot_type == "beach":
+        push_notification(
+            db,
+            message=f"🏖️ BEACH spot '{location_name}' in {city}, {state} has been removed",
+            type_="beach_spot_deleted",
+            entity_id=spot_id,
+            extra_data={
+                "location_name": location_name,
+                "city": city,
+                "state": state,
+                "spot_type": "beach",
+                "location_full": location_full,
+                "had_image": had_image,
+                "deleted_by": getattr(user, 'id', 'user'),
+                "category": "recreation",
+                "action": "beach_spot_deleted"
+            }
+        )
+    elif spot_type == "hotel":
+        push_notification(
+            db,
+            message=f"🏨 HOTEL spot '{location_name}' in {city}, {state} has been removed",
+            type_="hotel_spot_deleted",
+            entity_id=spot_id,
+            extra_data={
+                "location_name": location_name,
+                "city": city,
+                "state": state,
+                "spot_type": "hotel",
+                "location_full": location_full,
+                "had_image": had_image,
+                "deleted_by": getattr(user, 'id', 'user'),
+                "category": "accommodation",
+                "action": "hotel_spot_deleted"
+            }
+        )
+    elif spot_type == "foodspot":
+        push_notification(
+            db,
+            message=f"🍽️ FOOD spot '{location_name}' in {city}, {state} has been removed",
+            type_="foodspot_deleted",
+            entity_id=spot_id,
+            extra_data={
+                "location_name": location_name,
+                "city": city,
+                "state": state,
+                "spot_type": "foodspot",
+                "location_full": location_full,
+                "had_image": had_image,
+                "deleted_by": getattr(user, 'id', 'user'),
+                "category": "dining",
+                "action": "foodspot_deleted"
+            }
+        )
+
+    return {
+        "message": "Spot deleted successfully",
+        "spot_id": spot_id,
+        "spot_type": spot_type,
+        "location": location_full,
+        "had_image": had_image,
+        "image_cleanup": "completed" if cover_image_public_id else "not_needed"
+    }
+
+
+
+
+
+
+
 @router.get("/spots")
 async def get_all_spots(
     spot_id: Optional[int] = Query(None, description="Filter by specific spot ID"),
