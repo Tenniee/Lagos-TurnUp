@@ -55,21 +55,32 @@ def login_for_access_token(
 
 
 
-async def save_profile_picture(file: UploadFile) -> str:
+async def save_profile_picture(file: UploadFile) -> dict:
+    """
+    Upload profile picture to Cloudinary and return URL and public_id
+    """
     if not file.content_type.startswith('image/'):
         raise HTTPException(400, "File must be an image")
     
-    file_extension = file.filename.split('.')[-1]
-    unique_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_path = f"uploads/profiles/{unique_filename}"
-    
-    os.makedirs("uploads/profiles", exist_ok=True)
-    with open(file_path, "wb") as buffer:
+    # Read file content
+    try:
         content = await file.read()
-        buffer.write(content)
+    except Exception as e:
+        raise HTTPException(400, f"Error reading file: {str(e)}")
     
-    return f"/uploads/profiles/{unique_filename}"
-
+    # Validate file size (5MB limit for profile pictures)
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Profile picture too large. Maximum 5MB allowed.")
+    
+    # Upload to Cloudinary
+    try:
+        cloudinary_result = CloudinaryService.upload_profile_image(
+            file_content=content,
+            filename=file.filename or "profile"
+        )
+        return cloudinary_result
+    except Exception as e:
+        raise HTTPException(500, f"Profile picture upload failed: {str(e)}")
 
 
 @router.post("/sub-admin-signup", response_model=UserOut)
@@ -96,9 +107,19 @@ async def create_new_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # Handle profile picture upload
-    profile_picture_path = None
+    profile_picture_url = None
+    profile_picture_public_id = None
+    cloudinary_result = None
+    
     if profile_picture:
-        profile_picture_path = await save_profile_picture(profile_picture)
+        try:
+            cloudinary_result = await save_profile_picture(profile_picture)
+            profile_picture_url = cloudinary_result["url"]
+            profile_picture_public_id = cloudinary_result["public_id"]
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions as-is
+        except Exception as e:
+            raise HTTPException(500, f"Profile picture processing failed: {str(e)}")
 
     # Create user
     hashed_password = hash_password(password)
@@ -108,12 +129,24 @@ async def create_new_user(
         email=email,
         password=hashed_password,
         role=role,
-        profile_picture=profile_picture_path
+        profile_picture=profile_picture_url,
+        profile_picture_public_id=profile_picture_public_id  # Store for deletion later
     )
     
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except Exception as e:
+        # Clean up uploaded image if database operation fails
+        if cloudinary_result and cloudinary_result.get("public_id"):
+            try:
+                CloudinaryService.delete_image(cloudinary_result["public_id"])
+            except:
+                pass  # Don't fail the main operation if cleanup fails
+        
+        db.rollback()
+        raise HTTPException(500, f"Database error: {str(e)}")
 
     # Create token
     access_token = create_access_token(user_id=new_user.id)
@@ -128,12 +161,6 @@ async def create_new_user(
         "role": new_user.role,
         "profile_picture": new_user.profile_picture
     }
-
-
-
-
-
-
 
 
 @router.put("/sub-admin/{user_id}", response_model=UserOut)
@@ -183,20 +210,44 @@ async def update_sub_admin(
         user.role = role
 
     # Handle profile picture update
+    old_public_id = None
     if profile_picture:
-        # Optional: Delete old profile picture if it exists
-        if user.profile_picture:
-            # You might want to delete the old file from storage
-            pass
+        # Store old public_id for cleanup
+        old_public_id = getattr(user, 'profile_picture_public_id', None)
         
-        new_profile_picture_path = await save_profile_picture(profile_picture)
-        user.profile_picture = new_profile_picture_path
+        try:
+            cloudinary_result = await save_profile_picture(profile_picture)
+            user.profile_picture = cloudinary_result["url"]
+            user.profile_picture_public_id = cloudinary_result["public_id"]
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions as-is
+        except Exception as e:
+            raise HTTPException(500, f"Profile picture update failed: {str(e)}")
 
     # Update timestamp (assuming you have an updated_at field)
     # user.updated_at = datetime.utcnow()
 
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+        
+        # Clean up old profile picture after successful database update
+        if old_public_id and profile_picture:
+            try:
+                CloudinaryService.delete_image(old_public_id)
+            except:
+                pass  # Don't fail the main operation if cleanup fails
+                
+    except Exception as e:
+        # If database update fails and we uploaded a new image, clean it up
+        if profile_picture and hasattr(user, 'profile_picture_public_id'):
+            try:
+                CloudinaryService.delete_image(user.profile_picture_public_id)
+            except:
+                pass
+        
+        db.rollback()
+        raise HTTPException(500, f"Database error: {str(e)}")
 
     return {
         "id": user.id,
@@ -206,7 +257,6 @@ async def update_sub_admin(
         "role": user.role,
         "profile_picture": user.profile_picture
     }
-
 
 
 
