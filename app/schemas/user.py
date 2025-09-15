@@ -18,15 +18,7 @@ class UserOut(BaseModel):
     last_name: str
     email: str
     role: str
-    profile_picture: Optional[str] = None
-
-    @computed_field
-    @property
-    def profile_picture_url(self) -> Optional[str]:
-        if self.profile_picture:
-            base_url = os.getenv("BASE_URL", "http://localhost:8000")
-            return f"{base_url}{self.profile_picture}"
-        return None
+    profile_picture: Optional[str] = None  # This already contains the full Cloudinary URL
 
     class Config:
         from_attributes = True
