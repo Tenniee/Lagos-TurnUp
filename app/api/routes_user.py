@@ -65,11 +65,11 @@ def login_for_access_token(
 async def migrate_profile_column(db: Session = Depends(get_db)):
     """Temporary endpoint to add profile_picture_public_id column"""
     try:
-        # Raw SQL to add the column
-        db.execute("""
+        # Wrap the SQL string with text()
+        db.execute(text("""
             ALTER TABLE sub_admins 
             ADD COLUMN IF NOT EXISTS profile_picture_public_id VARCHAR(255);
-        """)
+        """))
         db.commit()
         return {"message": "Column added successfully!"}
     except Exception as e:
