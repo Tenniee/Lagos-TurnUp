@@ -18,6 +18,9 @@ from typing import List, Optional
 from app.utils.cloudinary import CloudinaryService
 
 
+from sqlalchemy import text
+
+
 
 
 router = APIRouter()
@@ -75,7 +78,7 @@ async def migrate_profile_column(db: Session = Depends(get_db)):
 
 
 
-        
+
 
 async def save_profile_picture(file: UploadFile) -> dict:
     """
