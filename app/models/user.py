@@ -14,6 +14,7 @@ class User(Base):
     role = Column(String(50), default="sub-admin", nullable=False)
     is_deactivated = Column(Boolean, default=False, nullable=False)
     profile_picture = Column(String(500), nullable=True)  # Add this line
+    profile_picture_public_id = Column(String(255), nullable=True)
     
 
 

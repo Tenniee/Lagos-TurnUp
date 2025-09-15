@@ -1356,7 +1356,7 @@ async def edit_banner(
 
 
 @router.delete("/banners/{banner_id}")
-def delete_banner(
+def delete_event_banner(
     banner_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)

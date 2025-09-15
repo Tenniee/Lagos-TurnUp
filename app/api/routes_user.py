@@ -15,6 +15,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 import uuid
 import os
 from typing import List, Optional
+from app.utils.cloudinary import CloudinaryService
 
 
 
@@ -54,6 +55,27 @@ def login_for_access_token(
 
 
 
+
+
+
+@router.post("/admin/migrate-profile-column")
+async def migrate_profile_column(db: Session = Depends(get_db)):
+    """Temporary endpoint to add profile_picture_public_id column"""
+    try:
+        # Raw SQL to add the column
+        db.execute("""
+            ALTER TABLE sub_admins 
+            ADD COLUMN IF NOT EXISTS profile_picture_public_id VARCHAR(255);
+        """)
+        db.commit()
+        return {"message": "Column added successfully!"}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
+
+
+        
 
 async def save_profile_picture(file: UploadFile) -> dict:
     """

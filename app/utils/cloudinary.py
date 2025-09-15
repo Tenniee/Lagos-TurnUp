@@ -45,6 +45,42 @@ class CloudinaryService:
             
         except Exception as e:
             raise Exception(f"Cloudinary upload failed: {str(e)}")
+
+
+
+
+    
+    @staticmethod
+    def upload_profile_image(file_content: bytes, filename: str) -> dict:
+        """Upload profile image to Cloudinary"""
+        try:
+            upload_options = {
+                "folder": "profiles",
+                "public_id": f"profile_{filename.split('.')[0]}_{cloudinary.utils.now()}",
+                "resource_type": "image",
+                "transformation": [
+                    {"width": 400, "height": 400, "crop": "fill", "gravity": "face"},  # Square crop focusing on face
+                    {"quality": "auto"},
+                    {"fetch_format": "auto"}
+                ],
+                "allowed_formats": ["jpg", "jpeg", "png", "webp"]
+            }
+            
+            result = cloudinary.uploader.upload(
+                io.BytesIO(file_content),
+                **upload_options
+            )
+            
+            return {
+                "url": result["secure_url"],
+                "public_id": result["public_id"]
+            }
+            
+        except Exception as e:
+            raise Exception(f"Cloudinary upload failed: {str(e)}")
+
+
+            
     
     @staticmethod
     def upload_event_image(file_content: bytes, filename: str) -> dict:
