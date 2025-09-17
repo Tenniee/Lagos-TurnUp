@@ -45,7 +45,6 @@ async def create_event(
     contact_link: str = Form(""),
     
     db: Session = Depends(get_db),
-    user: User = Depends(get_active_user)
 ):
     # Validate contact method if featured is requested
     if featured_requested:
