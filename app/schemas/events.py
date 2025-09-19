@@ -18,7 +18,8 @@ class EventCreate(BaseModel):
     # Featured request fields
     featured_requested: Optional[bool] = False
     contact_method: Optional[str] = ""  # email, phone, whatsapp
-    contact_link: Optional[str] = ""
+    contact_link: Optional[str] = ""  # DEPRECATED: Keep for backward compatibility
+    contact_value: Optional[str] = ""  # NEW: The actual contact value
 
 
 class EventOut(BaseModel):
@@ -33,6 +34,11 @@ class EventOut(BaseModel):
     event_flyer: Optional[str] = None
     is_featured: bool = False
     pending: bool = True
+    
+    # Featured fields - include both for backward compatibility
+    contact_method: Optional[str] = None
+    contact_link: Optional[str] = None  # DEPRECATED
+    contact_value: Optional[str] = None  # NEW
 
     @computed_field
     @property
@@ -49,8 +55,8 @@ class EventOut(BaseModel):
 
     class Config:
         from_attributes = True
-    
 
+        
 
 class NotificationOut(BaseModel):
     id: int

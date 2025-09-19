@@ -28,6 +28,118 @@ router = APIRouter()
 
 
 
+
+
+
+
+from sqlalchemy import text
+
+@router.post("/admin/migrate-contact-values")
+async def migrate_contact_values(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)  # Make sure only authenticated users can run this
+):
+    """
+    Migration endpoint to add contact_value column and migrate data from contact_link.
+    This should be run once after deploying the new schema.
+    """
+    try:
+        # First, add the column if it doesn't exist
+        db.execute(text("""
+            ALTER TABLE events 
+            ADD COLUMN IF NOT EXISTS contact_value VARCHAR(300);
+        """))
+        
+        # Migrate data from contact_link to contact_value where contact_value is null
+        result = db.execute(text("""
+            UPDATE events 
+            SET contact_value = contact_link 
+            WHERE contact_value IS NULL 
+            AND contact_link IS NOT NULL 
+            AND contact_link != '';
+        """))
+        
+        db.commit()
+        
+        return {
+            "message": "Migration completed successfully",
+            "rows_updated": result.rowcount,
+            "details": "Added contact_value column and migrated data from contact_link"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Migration failed: {str(e)}")
+
+
+@router.get("/admin/migration-status")
+async def check_migration_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_active_user)
+):
+    """
+    Check the status of the contact_value migration.
+    """
+    try:
+        # Check if contact_value column exists
+        column_exists = db.execute(text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'events' 
+            AND column_name = 'contact_value';
+        """)).fetchone()
+        
+        if not column_exists:
+            return {
+                "status": "not_migrated",
+                "message": "contact_value column does not exist"
+            }
+        
+        # Check how many rows have data in both fields
+        stats = db.execute(text("""
+            SELECT 
+                COUNT(*) as total_events,
+                COUNT(contact_link) as events_with_contact_link,
+                COUNT(contact_value) as events_with_contact_value,
+                COUNT(CASE WHEN contact_link IS NOT NULL AND contact_value IS NULL THEN 1 END) as needs_migration
+            FROM events;
+        """)).fetchone()
+        
+        return {
+            "status": "migrated" if stats.needs_migration == 0 else "partial",
+            "stats": {
+                "total_events": stats.total_events,
+                "events_with_contact_link": stats.events_with_contact_link,
+                "events_with_contact_value": stats.events_with_contact_value,
+                "needs_migration": stats.needs_migration
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Failed to check migration status: {str(e)}")
+
+
+
+
+
+
+
+
+
+
+
+from sqlalchemy import text
+
+
+
+
+
+
+
+
+
+
+
 @router.post("/events/create")
 async def create_event(
     event_name: str = Form(...),
@@ -42,7 +154,8 @@ async def create_event(
     # Featured request fields
     featured_requested: bool = Form(False),
     contact_method: str = Form(""),  # email, phone, whatsapp
-    contact_link: str = Form(""),
+    contact_link: str = Form(""),    # DEPRECATED: Keep for backward compatibility
+    contact_value: str = Form(""),   # NEW: The actual contact value
     
     db: Session = Depends(get_db),
 ):
@@ -51,8 +164,11 @@ async def create_event(
         valid_methods = ["email", "phone", "whatsapp"]
         if contact_method not in valid_methods:
             raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
-        if not contact_link:
-            raise HTTPException(400, "Contact link is required when requesting featured event")
+        
+        # Check for contact value (prioritize contact_value, fallback to contact_link for backward compatibility)
+        final_contact_value = contact_value or contact_link
+        if not final_contact_value:
+            raise HTTPException(400, "Contact value is required when requesting featured event")
 
     flyer_url = None
     flyer_public_id = None
@@ -78,6 +194,9 @@ async def create_event(
         except Exception as e:
             raise HTTPException(500, f"Image upload failed: {str(e)}")
 
+    # Handle backward compatibility for contact values
+    final_contact_value = contact_value or contact_link if featured_requested else None
+
     new_event = Event(
         event_name=event_name,
         state=state,
@@ -94,7 +213,8 @@ async def create_event(
         # Featured request data
         featured_requested=featured_requested,
         contact_method=contact_method if featured_requested else None,
-        contact_link=contact_link if featured_requested else None,
+        contact_link=contact_link if featured_requested else None,  # Keep for backward compatibility
+        contact_value=final_contact_value,  # NEW field
     )
 
     try:
@@ -119,7 +239,7 @@ async def create_event(
                 "state": new_event.state, 
                 "venue": new_event.venue,
                 "contact_method": contact_method,
-                "contact_link": contact_link,
+                "contact_value": final_contact_value,  # Use the new field in notifications
                 "featured": True
             }
         )
@@ -140,9 +260,9 @@ async def create_event(
         "message": "Event created successfully", 
         "event_id": new_event.id, 
         "featured_requested": featured_requested,
-        "image_url": flyer_url
+        "image_url": flyer_url,
+        "contact_value": final_contact_value  # Include in response
     }
-
 
 
 
@@ -554,7 +674,8 @@ async def edit_event(
     # Featured request fields
     featured_requested: Optional[bool] = Form(None),
     contact_method: Optional[str] = Form(None),  # email, phone, whatsapp
-    contact_link: Optional[str] = Form(None),
+    contact_link: Optional[str] = Form(None),    # DEPRECATED: Keep for backward compatibility
+    contact_value: Optional[str] = Form(None),   # NEW: The actual contact value
     
     event_flyer: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
@@ -574,13 +695,23 @@ async def edit_event(
     if featured_requested is not None and featured_requested:
         # If they're requesting featured, validate the contact info
         final_contact_method = contact_method if contact_method is not None else event.contact_method
-        final_contact_link = contact_link if contact_link is not None else event.contact_link
+        
+        # Prioritize contact_value, fallback to contact_link for backward compatibility
+        final_contact_value = None
+        if contact_value is not None:
+            final_contact_value = contact_value
+        elif contact_link is not None:
+            final_contact_value = contact_link
+        elif hasattr(event, 'contact_value') and event.contact_value:
+            final_contact_value = event.contact_value
+        elif hasattr(event, 'contact_link') and event.contact_link:
+            final_contact_value = event.contact_link
         
         valid_methods = ["email", "phone", "whatsapp"]
         if final_contact_method not in valid_methods:
             raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
-        if not final_contact_link:
-            raise HTTPException(400, "Contact link is required when requesting featured event")
+        if not final_contact_value:
+            raise HTTPException(400, "Contact value is required when requesting featured event")
 
     # Update text fields if provided
     if event_name is not None:
@@ -607,9 +738,16 @@ async def edit_event(
         if not featured_requested:
             event.contact_method = None
             event.contact_link = None
+            if hasattr(event, 'contact_value'):
+                event.contact_value = None
     
     if contact_method is not None:
         event.contact_method = contact_method if event.featured_requested else None
+    
+    # Handle contact field updates - both fields are equally important
+    if contact_value is not None:
+        if hasattr(event, 'contact_value'):
+            event.contact_value = contact_value if event.featured_requested else None
     
     if contact_link is not None:
         event.contact_link = contact_link if event.featured_requested else None
@@ -658,6 +796,9 @@ async def edit_event(
     # Smart notification system based on what changed
     notification_sent = False
     
+    # Get final contact value for notifications (prioritize contact_value)
+    final_contact_for_notification = getattr(event, 'contact_value', None) or getattr(event, 'contact_link', None)
+    
     # Priority 1: Featured status changes (most important)
     if is_featured is not None and is_featured != original_featured:
         if is_featured:
@@ -699,7 +840,7 @@ async def edit_event(
                 "state": event.state,
                 "venue": event.venue,
                 "contact_method": event.contact_method,
-                "contact_link": event.contact_link,
+                "contact_value": final_contact_for_notification,  # Use the new field
                 "featured_requested": True,
                 "action": "edit_with_featured_request"
             }
@@ -764,8 +905,6 @@ async def edit_event(
             )
     
     return {"message": "Event updated successfully", "event": event}
-
-
 
 
 

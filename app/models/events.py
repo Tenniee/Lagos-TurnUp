@@ -24,8 +24,8 @@ class Event(Base):
     # Featured request fields
     featured_requested = Column(Boolean, default=False)  # User requested featured status
     contact_method = Column(String(20), nullable=True)  # email, phone, whatsapp
-    contact_link = Column(String(300), nullable=True)
-
+    contact_link = Column(String(300), nullable=True)  # DEPRECATED: Keep for backward compatibility
+    contact_value = Column(String(300), nullable=True)  # NEW: The actual contact value
 
 
 class Notification(Base):
