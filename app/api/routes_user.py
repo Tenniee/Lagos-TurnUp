@@ -384,11 +384,20 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
             detail="Invalid email or password"
         )
     
+    # Check if user is deactivated
+    if user.is_deactivated:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account has been deactivated. Please contact support."
+        )
+    
     # Create access token
-    access_token = create_access_token(user_id= user.id)
+    access_token = create_access_token(user_id=user.id)
     
     return {"access_token": access_token, "token_type": "bearer"}
 
+
+    
 @router.get("/me", response_model=UserOut)
 def fetch_current_user_details(current_user: UserOut = Depends(get_current_user)):
     return current_user

@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     email: str
     role: str
     profile_picture: Optional[str] = None  # This already contains the full Cloudinary URL
+    is_deactivated: bool = False
 
     class Config:
         from_attributes = True
