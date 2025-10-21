@@ -150,6 +150,7 @@ async def create_event(
     dress_code: str = Form(""),
     event_description: str = Form(""),
     event_flyer: UploadFile = File(None),
+    phone_no: str = Form(""),
     
     # Featured request fields
     featured_requested: bool = Form(False),
@@ -209,6 +210,7 @@ async def create_event(
         event_flyer_public_id=flyer_public_id,  # Store public_id for deletion
         is_featured=False,  # Always False initially
         pending=True,
+        phone_no=phone_no,
         
         # Featured request data
         featured_requested=featured_requested,

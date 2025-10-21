@@ -14,6 +14,7 @@ class EventCreate(BaseModel):
     dress_code: Optional[str] = ""
     event_description: Optional[str] = ""
     event_flyer: Optional[str] = ""
+    phone_no: str
     
     # Featured request fields
     featured_requested: Optional[bool] = False
@@ -34,6 +35,7 @@ class EventOut(BaseModel):
     event_flyer: Optional[str] = None
     is_featured: bool = False
     pending: bool = True
+    phone_no: Optional[str] = None
     
     # Featured fields - include both for backward compatibility
     contact_method: Optional[str] = None

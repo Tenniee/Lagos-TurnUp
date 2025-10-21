@@ -20,11 +20,12 @@ class Event(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     event_flyer_public_id = Column(String(255), nullable=True)
+    phone_no = Column(String(20), nullable=False)
     
     # Featured request fields
     featured_requested = Column(Boolean, default=False)  # User requested featured status
     contact_method = Column(String(20), nullable=True)  # email, phone, whatsapp
-    contact_link = Column(String(300), nullable=True)  # DEPRECATED: Keep for backward compatibility
+    contact_link = Column(String(300), nullable=True)  
     contact_value = Column(String(300), nullable=True)  # NEW: The actual contact value
 
 
