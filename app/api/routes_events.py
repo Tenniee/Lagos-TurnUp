@@ -1495,7 +1495,7 @@ async def edit_banner(
 
 
 @router.delete("/banners/{banner_id}")
-def delete_event_banner(
+async def delete_event_banner(
     banner_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
@@ -1522,7 +1522,7 @@ def delete_event_banner(
 
 
 @router.delete("/banners/{banner_id}")
-def delete_banner(
+async def delete_banner(
     banner_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
@@ -1645,7 +1645,7 @@ def delete_banner(
 
 
 @router.patch("/banners/{banner_id}/approve", response_model=BannerOut)
-def approve_banner(
+async def approve_banner(
     banner_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
@@ -1739,7 +1739,7 @@ def approve_banner(
 
 
 @router.patch("/banners/{banner_id}/unapprove", response_model=BannerOut)
-def unapprove_banner(
+async def unapprove_banner(
     banner_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user)
