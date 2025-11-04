@@ -13,6 +13,11 @@ from app.deps.deps import get_db
 
 from app.api.google_auth import router as google_auth_router
 
+
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+import redis.asyncio as redis
+
 app = FastAPI(title="LagosTurnUp")
 
 
@@ -26,7 +31,10 @@ app.add_middleware(
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-
+@app.on_event("startup")
+async def startup():
+    redis_client = redis.from_url("redis://localhost:6379", encoding="utf8", decode_responses=True)
+    FastAPICache.init(RedisBackend(redis_client), prefix="fastapi-cache")
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)

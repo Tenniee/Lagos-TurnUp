@@ -16,6 +16,9 @@ import os
 from datetime import date
 from app.utils.cloudinary import CloudinaryService
 
+from fastapi_cache.decorator import cache
+
+
 
 import logging
 logger = logging.getLogger(__name__)
@@ -223,6 +226,7 @@ async def create_event(
         db.add(new_event)
         db.commit()
         db.refresh(new_event)
+        await FastAPICache.clear()
     except Exception as e:
         db.rollback()
         # Clean up uploaded image if database operation fails
@@ -271,6 +275,7 @@ async def create_event(
 
 
 @router.get("/events", response_model=List[EventOut])
+@cache(expire=300)
 def get_events(
     id: Optional[int] = Query(None, description="Filter by event ID"),
     state: Optional[str] = Query(None, description="Filter by state"),
@@ -281,30 +286,22 @@ def get_events(
 ):
     query = db.query(Event)
 
-    # Filter by ID if provided
     if id is not None:
         query = query.filter(Event.id == id)
-
-    # Filter by state if provided
     if state:
         query = query.filter(Event.state == state)
-
-    # Filter by is_featured if provided
     if is_featured is not None:
         query = query.filter(Event.is_featured == is_featured)
-
-    # Filter by pending if provided
     if pending is not None:
         query = query.filter(Event.pending == pending)
 
-    # Order by newest first
     query = query.order_by(Event.created_at.desc())
 
-    # Apply limit if provided
     if limit:
         query = query.limit(limit)
 
     return query.all()
+
 
 
 
@@ -345,6 +342,7 @@ async def approve_featured_event(
         # Commit both changes together
         db.commit() 
         db.refresh(event)
+        await FastAPICache.clear()
         
         return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
         
@@ -1389,6 +1387,7 @@ async def edit_banner(
         try:
             db.commit()
             db.refresh(existing_banner)
+            await FastAPICache.clear()
         except Exception as e:
             # Clean up new Cloudinary image if database operation fails
             if banner and cloudinary_result and cloudinary_result.get("public_id"):
@@ -1513,6 +1512,7 @@ def delete_event_banner(
     
     db.delete(banner)
     db.commit()
+    await FastAPICache.clear()
     
     return {"message": "Banner deleted successfully"}
 
@@ -1549,6 +1549,7 @@ def delete_banner(
     # Delete the banner from database
     db.delete(banner)
     db.commit()
+    await FastAPICache.clear()
     
     # Smart notification based on banner type and approval status
     if is_approved and has_link:
@@ -1677,6 +1678,7 @@ def approve_banner(
     try:
         db.commit()
         db.refresh(banner)
+        await FastAPICache.clear()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
@@ -1768,6 +1770,8 @@ def unapprove_banner(
     banner.is_approved = False
     db.commit()
     db.refresh(banner)
+
+    await FastAPICache.clear()
     
     # Smart notification based on banner type - unapproval is always significant
     if has_link:
@@ -1820,6 +1824,7 @@ def unapprove_banner(
 
 
 @router.get("/banners", response_model=List[BannerOut])
+@cache(expire=300)
 def get_banners(
     approved_only: Optional[bool] = None,
     db: Session = Depends(get_db)
@@ -1831,6 +1836,7 @@ def get_banners(
     
     query = query.order_by(Banner.created_at.desc())
     return query.all()
+
 
 @router.get("/banners/{banner_id}", response_model=BannerOut)
 def get_banner(
