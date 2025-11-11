@@ -142,7 +142,56 @@ from sqlalchemy import text
 
 
 
+# First, create an optional auth dependency function
+# Add this to your dependencies file (e.g., auth.py or dependencies.py)
 
+from typing import Optional
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy.orm import Session
+
+async def get_optional_active_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Optional authentication - returns active User if token is valid, None otherwise.
+    Combines get_current_user and get_active_user logic but makes it optional.
+    Does NOT raise an error if no token is provided or if token is invalid.
+    """
+    if not authorization:
+        return None
+    
+    try:
+        # Step 1: Get current user (like get_current_user)
+        if not authorization.startswith("Bearer "):
+            return None
+        
+        token = authorization.replace("Bearer ", "")
+        
+        # Verify token and get user_id
+        payload = verify_token(token)  # Your token verification function
+        user_id = payload.get("user_id")
+        
+        if not user_id:
+            return None
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            return None
+        
+        # Step 2: Check if user is active (like get_active_user)
+        if not getattr(user, 'is_active', True):
+            return None
+            
+        return user
+        
+    except Exception:
+        # Token is invalid or expired - return None instead of raising error
+        return None
+
+
+# Now update your create_event endpoint
 @router.post("/events/create")
 async def create_event(
     event_name: str = Form(...),
@@ -157,19 +206,36 @@ async def create_event(
     
     # Featured request fields
     featured_requested: bool = Form(False),
-    contact_method: str = Form(""),  # email, phone, whatsapp
-    contact_link: str = Form(""),    # DEPRECATED: Keep for backward compatibility
-    contact_value: str = Form(""),   # NEW: The actual contact value
+    contact_method: str = Form(""),
+    contact_link: str = Form(""),
+    contact_value: str = Form(""),
     
     db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_active_user)  # ← OPTIONAL ACTIVE USER
 ):
+    # Check user role and set pending/featured status accordingly
+    is_pending = True
+    is_featured = False
+    user_role = None
+    user_id = None
+    
+    if user:
+        user_role = getattr(user, 'role', None)
+        user_id = user.id
+        
+        # If user is sub-admin or super-admin
+        if user_role in ["sub-admin", "super-admin"]:
+            is_pending = False  # No approval needed
+            # If they requested featured, grant it immediately
+            if featured_requested:
+                is_featured = True
+    
     # Validate contact method if featured is requested
     if featured_requested:
         valid_methods = ["email", "phone", "whatsapp"]
         if contact_method not in valid_methods:
             raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
         
-        # Check for contact value (prioritize contact_value, fallback to contact_link for backward compatibility)
         final_contact_value = contact_value or contact_link
         if not final_contact_value:
             raise HTTPException(400, "Contact value is required when requesting featured event")
@@ -178,16 +244,13 @@ async def create_event(
     flyer_public_id = None
     
     if event_flyer:
-        # Validate file type
         if not event_flyer.content_type.startswith('image/'):
             raise HTTPException(400, "File must be an image")
         
-        # Validate file size
         content = await event_flyer.read()
-        if len(content) > 5 * 1024 * 1024:  # 5MB limit
+        if len(content) > 5 * 1024 * 1024:
             raise HTTPException(400, "File size too large. Maximum 5MB allowed.")
         
-        # Upload to Cloudinary
         try:
             cloudinary_result = CloudinaryService.upload_event_image(
                 file_content=content,
@@ -198,7 +261,6 @@ async def create_event(
         except Exception as e:
             raise HTTPException(500, f"Image upload failed: {str(e)}")
 
-    # Handle backward compatibility for contact values
     final_contact_value = contact_value or contact_link if featured_requested else None
 
     new_event = Event(
@@ -209,17 +271,19 @@ async def create_event(
         time=time,
         dress_code=dress_code,
         event_description=event_description,
-        event_flyer=flyer_url,  # Store Cloudinary URL
-        event_flyer_public_id=flyer_public_id,  # Store public_id for deletion
-        is_featured=False,  # Always False initially
-        pending=True,
+        event_flyer=flyer_url,
+        event_flyer_public_id=flyer_public_id,
+        is_featured=is_featured,  # Set based on role
+        pending=is_pending,  # Set based on role
         phone_no=phone_no,
+        created_by=user_id,  # Track who created it
         
         # Featured request data
-        featured_requested=featured_requested,
+        # Don't set featured_requested if admin already featured it
+        featured_requested=featured_requested and not is_featured,
         contact_method=contact_method if featured_requested else None,
-        contact_link=contact_link if featured_requested else None,  # Keep for backward compatibility
-        contact_value=final_contact_value,  # NEW field
+        contact_link=contact_link if featured_requested else None,
+        contact_value=final_contact_value,
     )
 
     try:
@@ -229,47 +293,68 @@ async def create_event(
         await FastAPICache.clear()
     except Exception as e:
         db.rollback()
-        # Clean up uploaded image if database operation fails
         if flyer_public_id:
             CloudinaryService.delete_image(flyer_public_id)
         raise HTTPException(500, f"Database error: {str(e)}")
 
-    # Smart notification based on event type
+    # Smart notification based on event type and user role
+    notification_extra = {
+        "state": new_event.state, 
+        "venue": new_event.venue,
+        "featured": is_featured,
+        "created_by_role": user_role,
+        "created_by_user": user_id,
+        "date": str(new_event.date),
+        "time": new_event.time
+    }
+    
     if featured_requested:
+        notification_extra["contact_method"] = contact_method
+        notification_extra["contact_value"] = final_contact_value
+        
+        # Different messages based on whether admin auto-featured it
+        if user_role in ["sub-admin", "super-admin"]:
+            if is_featured:
+                message = f"🌟 {user_role.upper()} created FEATURED event: '{new_event.event_name}' (Auto-approved)"
+            else:
+                message = f"✅ {user_role.upper()} created event: '{new_event.event_name}' (Auto-approved)"
+        else:
+            message = f"🌟 New FEATURED event request: '{new_event.event_name}' - Contact via {contact_method}"
+        
         push_notification(
             db,
-            message=f"🌟 New FEATURED event request: '{new_event.event_name}' - Contact via {contact_method}",
-            type_="featured_event",
+            message=message,
+            type_="featured_event" if is_featured else "featured_event_request",
             entity_id=new_event.id,
-            extra_data={
-                "state": new_event.state, 
-                "venue": new_event.venue,
-                "contact_method": contact_method,
-                "contact_value": final_contact_value,  # Use the new field in notifications
-                "featured": True
-            }
+            extra_data=notification_extra
         )
     else:
+        # Regular event
+        if user_role in ["sub-admin", "super-admin"]:
+            message = f"✅ {user_role.upper()} created event: '{new_event.event_name}' (Auto-approved)"
+        else:
+            creator_type = "user" if user else "anonymous"
+            message = f"New event '{new_event.event_name}' created by {creator_type}"
+        
         push_notification(
             db,
-            message=f"New event '{new_event.event_name}' created",
+            message=message,
             type_="event",
             entity_id=new_event.id,
-            extra_data={
-                "state": new_event.state, 
-                "venue": new_event.venue,
-                "featured": False
-            }
+            extra_data=notification_extra
         )
 
     return {
         "message": "Event created successfully", 
         "event_id": new_event.id, 
-        "featured_requested": featured_requested,
+        "featured_requested": featured_requested and not is_featured,  # False if admin auto-featured
         "image_url": flyer_url,
-        "contact_value": final_contact_value  # Include in response
+        "contact_value": final_contact_value,
+        "requires_approval": is_pending,
+        "is_featured": is_featured,
+        "created_by": user_role if user else "anonymous",
+        "auto_approved": not is_pending
     }
-
 
 
 
@@ -911,7 +996,7 @@ async def edit_event(
 
     
 
-@router.put("/approve-event/{event_id}")
+'''@router.put("/approve-event/{event_id}")
 def approve_event(
     event_id: int,
     db: Session = Depends(get_db),
@@ -1023,6 +1108,90 @@ def approve_event(
         "message": f"Event '{event.event_name}' approved successfully", 
         "event": event,
         "featured_status": "approved"
+    }'''
+
+
+
+
+
+@router.put("/approve-event/{event_id}")
+def approve_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_active_user)
+):
+    # Find event by ID
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Check if event is pending
+    was_pending = getattr(event, 'pending', False)
+    
+    # Validate that event is actually pending
+    if not was_pending:
+        raise HTTPException(status_code=400, detail="Event is not pending approval")
+
+    # Check if event also requested to be featured
+    has_featured_request = getattr(event, 'featured_requested', False)
+    
+    # Approve the event by clearing pending status
+    event.pending = False
+    
+    # If event requested featured status, approve that too
+    if has_featured_request:
+        event.is_featured = True
+        event.featured_requested = False
+        
+        # Send approval + featured notification
+        push_notification(
+            db,
+            message=f"🎉 Event '{event.event_name}' APPROVED and now FEATURED!",
+            type_="event_approved_and_featured",
+            entity_id=event.id,
+            extra_data={
+                "event_name": event.event_name,
+                "state": event.state,
+                "venue": event.venue,
+                "date": str(event.date),
+                "time": event.time,
+                "featured": True,
+                "admin_action": True,
+                "approved_by": getattr(user, 'id', 'admin'),
+                "action": "approved_and_featured",
+                "contact_method": getattr(event, 'contact_method', None),
+                "contact_link": getattr(event, 'contact_link', None)
+            }
+        )
+    else:
+        # Send regular approval notification
+        push_notification(
+            db,
+            message=f"✅ Event '{event.event_name}' has been APPROVED by admin!",
+            type_="event_approved",
+            entity_id=event.id,
+            extra_data={
+                "event_name": event.event_name,
+                "state": event.state,
+                "venue": event.venue,
+                "date": str(event.date),
+                "time": event.time,
+                "admin_action": True,
+                "approved_by": getattr(user, 'id', 'admin'),
+                "action": "approved",
+                "contact_method": getattr(event, 'contact_method', None),
+                "contact_link": getattr(event, 'contact_link', None)
+            }
+        )
+    
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "message": f"Event '{event.event_name}' approved successfully", 
+        "event": event,
+        "status": "approved",
+        "is_featured": event.is_featured
     }
 
 
