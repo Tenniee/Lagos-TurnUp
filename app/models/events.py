@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Time, Text, Boolean, DateTime, JSON, func
+from sqlalchemy import Column, Integer, String, Date, Time, Text, Boolean, DateTime, JSON, func, ForeignKey
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -18,6 +18,7 @@ class Event(Base):
     is_featured = Column(Boolean, default=False)
     pending = Column(Boolean, default=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by = Column(Integer, ForeignKey("sub_admins.id"), nullable=True)
     
     event_flyer_public_id = Column(String(255), nullable=True)
     phone_no = Column(String(20), nullable=False)

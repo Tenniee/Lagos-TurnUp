@@ -290,7 +290,6 @@ async def create_event(
         db.add(new_event)
         db.commit()
         db.refresh(new_event)
-        await FastAPICache.clear()
     except Exception as e:
         db.rollback()
         if flyer_public_id:
@@ -427,7 +426,6 @@ async def approve_featured_event(
         # Commit both changes together
         db.commit() 
         db.refresh(event)
-        await FastAPICache.clear()
         
         return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
         
@@ -1556,7 +1554,6 @@ async def edit_banner(
         try:
             db.commit()
             db.refresh(existing_banner)
-            await FastAPICache.clear()
         except Exception as e:
             # Clean up new Cloudinary image if database operation fails
             if banner and cloudinary_result and cloudinary_result.get("public_id"):
@@ -1681,7 +1678,6 @@ async def delete_event_banner(
     
     db.delete(banner)
     db.commit()
-    await FastAPICache.clear()
     
     return {"message": "Banner deleted successfully"}
 
@@ -1718,7 +1714,6 @@ async def delete_banner(
     # Delete the banner from database
     db.delete(banner)
     db.commit()
-    await FastAPICache.clear()
     
     # Smart notification based on banner type and approval status
     if is_approved and has_link:
@@ -1847,7 +1842,6 @@ async def approve_banner(
     try:
         db.commit()
         db.refresh(banner)
-        await FastAPICache.clear()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
@@ -1940,7 +1934,6 @@ async def unapprove_banner(
     db.commit()
     db.refresh(banner)
 
-    await FastAPICache.clear()
     
     # Smart notification based on banner type - unapproval is always significant
     if has_link:
