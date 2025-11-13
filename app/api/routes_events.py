@@ -17,6 +17,8 @@ from datetime import date
 from app.utils.cloudinary import CloudinaryService
 
 from fastapi_cache.decorator import cache
+from fastapi.security import OAuth2PasswordBearer
+from typing import Optional
 
 
 
@@ -1388,16 +1390,24 @@ async def save_banner_file(file: UploadFile) -> str:
     
     return f"/uploads/banners/{unique_filename}"
 
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Create optional version (for endpoints where auth is optional)
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+
 async def get_optional_user(
-    token: Optional[str] = Depends(oauth2_scheme_optional),  # You'll need to create this
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     if not token:
         return None
+    
     # Your existing user verification logic
     try:
-        return get_active_user(token, db)
-    except:
+        return check_user_deactivated(token, db)
+    except Exception:
         return None
 
 @router.post("/banners/create", response_model=BannerOut)
@@ -1435,10 +1445,10 @@ async def add_banner(
     # Create banner record in database
     new_banner = Banner(
         name=name,
-        banner_image=cloudinary_result["url"],  # Store Cloudinary URL
-        banner_public_id=cloudinary_result["public_id"],  # Store public_id for deletion
+        banner_image=cloudinary_result["url"],
+        banner_public_id=cloudinary_result["public_id"],
         banner_link=banner_link if banner_link else None,
-        is_approved=False  # Default to not approved
+        is_approved=False
     )
     
     try:
@@ -1457,6 +1467,9 @@ async def add_banner(
     has_link = bool(banner_link and banner_link.strip())
     file_size_mb = round(len(content) / (1024 * 1024), 2)
     
+    # Handle user ID safely
+    created_by = user.id if user else "anonymous"
+    
     if has_link:
         push_notification(
             db,
@@ -1469,7 +1482,7 @@ async def add_banner(
                 "banner_link": new_banner.banner_link,
                 "file_size_mb": file_size_mb,
                 "is_approved": False,
-                "created_by": getattr(user, 'id', 'user'),
+                "created_by": created_by,
                 "banner_type": "promotional",
                 "action": "banner_created_with_link",
                 "requires_approval": True
@@ -1486,7 +1499,7 @@ async def add_banner(
                 "has_link": False,
                 "file_size_mb": file_size_mb,
                 "is_approved": False,
-                "created_by": getattr(user, 'id', 'user'),
+                "created_by": created_by,
                 "banner_type": "standard",
                 "action": "banner_created",
                 "requires_approval": True
@@ -1494,7 +1507,6 @@ async def add_banner(
         )
     
     return new_banner
-
 
 
 
