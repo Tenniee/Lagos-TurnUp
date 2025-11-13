@@ -1388,15 +1388,25 @@ async def save_banner_file(file: UploadFile) -> str:
     
     return f"/uploads/banners/{unique_filename}"
 
-
+async def get_optional_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),  # You'll need to create this
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    if not token:
+        return None
+    # Your existing user verification logic
+    try:
+        return get_active_user(token, db)
+    except:
+        return None
 
 @router.post("/banners/create", response_model=BannerOut)
 async def add_banner(
     name: str = Form(...),
-    banner_link: str = Form(""),  # Optional banner link
+    banner_link: str = Form(""),
     banner: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_active_user)
+    user: Optional[User] = Depends(get_optional_user)
 ):
     # Validate banner file
     if not banner.content_type.startswith('image/'):
