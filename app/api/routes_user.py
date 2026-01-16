@@ -95,7 +95,7 @@ async def create_new_user(
     password: str = Form(...),
     secret_key: str = Form(...),  # Added secret key requirement
     role: str = Form("sub-admin"),
-    profile_picture: UploadFile = File(None),
+    profile_picture: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
     # Validate secret key first
@@ -178,7 +178,7 @@ async def create_new_super_admin_user(
     password: str = Form(...),
     secret_key: str = Form(...),  # Added secret key requirement
     role: str = Form("super-admin"),
-    profile_picture: UploadFile = File(None),
+    profile_picture: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
     # Validate secret key first
