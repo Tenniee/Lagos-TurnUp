@@ -170,7 +170,7 @@ async def create_new_user(
 
 
 
-@router.post("/sub-admin-signup", response_model=UserOut)
+@router.post("/super-admin-signup", response_model=UserOut)
 async def create_new_user(
     first_name: str = Form(...),
     last_name: str = Form(...),
