@@ -167,6 +167,89 @@ async def create_new_user(
     }
 
 
+
+
+
+@router.post("/sub-admin-signup", response_model=UserOut)
+async def create_new_user(
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    secret_key: str = Form(...),  # Added secret key requirement
+    role: str = Form("super-admin"),
+    profile_picture: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    # Validate secret key first
+    if secret_key != "TURNUP_LAGOS":
+        raise HTTPException(
+            status_code=401, 
+            detail="Unauthorized: Invalid secret key"
+        )
+    
+    # Check if email exists
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Handle profile picture upload
+    profile_picture_url = None
+    profile_picture_public_id = None
+    cloudinary_result = None
+    
+    if profile_picture:
+        try:
+            cloudinary_result = await save_profile_picture(profile_picture)
+            profile_picture_url = cloudinary_result["url"]
+            profile_picture_public_id = cloudinary_result["public_id"]
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions as-is
+        except Exception as e:
+            raise HTTPException(500, f"Profile picture processing failed: {str(e)}")
+
+    # Create user
+    hashed_password = hash_password(password)
+    new_user = User(
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        password=hashed_password,
+        role=role,
+        profile_picture=profile_picture_url,
+        profile_picture_public_id=profile_picture_public_id  # Store for deletion later
+    )
+    
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except Exception as e:
+        # Clean up uploaded image if database operation fails
+        if cloudinary_result and cloudinary_result.get("public_id"):
+            try:
+                CloudinaryService.delete_image(cloudinary_result["public_id"])
+            except:
+                pass  # Don't fail the main operation if cleanup fails
+        
+        db.rollback()
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+    # Create token
+    access_token = create_access_token(user_id=new_user.id)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "id": new_user.id,
+        "first_name": new_user.first_name,
+        "last_name": new_user.last_name,
+        "email": new_user.email,
+        "role": new_user.role,
+        "profile_picture": new_user.profile_picture
+    }
+
+
 @router.put("/sub-admin/{user_id}", response_model=UserOut)
 async def update_sub_admin(
     user_id: int,
