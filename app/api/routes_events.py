@@ -361,7 +361,6 @@ async def create_event(
 
 
 @router.get("/events", response_model=List[EventOut])
-@cache(expire=300)
 def get_events(
     id: Optional[int] = Query(None, description="Filter by event ID"),
     state: Optional[str] = Query(None, description="Filter by state"),
@@ -429,16 +428,12 @@ async def approve_featured_event(
         db.commit() 
         db.refresh(event)
         
-        # Clear cache after successful update
-        await FastAPICache.clear(namespace="")
-        
         return {"message": f"Event '{event.event_name}' is now featured!", "is_featured": True}
         
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to approve featured event: {e}")
         raise
-
 
 
 
@@ -748,8 +743,6 @@ def get_newsletter_subscription_by_id(
 
 
 
-from fastapi_cache import FastAPICache
-
 @router.put("/events/{event_id}")
 async def edit_event(
     event_id: int,
@@ -877,10 +870,6 @@ async def edit_event(
     try:
         db.commit()
         db.refresh(event)
-        
-        # Clear the events cache after successful update
-        await FastAPICache.clear(namespace="")
-        
     except Exception as e:
         db.rollback()
         # Clean up new Cloudinary image if database operation fails
@@ -1000,6 +989,7 @@ async def edit_event(
             )
     
     return {"message": "Event updated successfully", "event": event}
+
 
 
 
@@ -1124,7 +1114,7 @@ def approve_event(
 
 
 @router.put("/approve-event/{event_id}")
-async def approve_event(
+def approve_event(
     event_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_active_user)
@@ -1195,9 +1185,6 @@ async def approve_event(
     
     db.commit()
     db.refresh(event)
-    
-    # Clear cache after successful update
-    await FastAPICache.clear(namespace="")
 
     return {
         "message": f"Event '{event.event_name}' approved successfully", 
@@ -1211,11 +1198,7 @@ async def approve_event(
 
 
 @router.put("/unapprove-event/{event_id}/unapprove")
-async def unapprove_event(
-    event_id: int, 
-    db: Session = Depends(get_db), 
-    user=Depends(get_active_user)
-):
+def unapprove_event(event_id: int, db: Session = Depends(get_db), user=Depends(get_active_user)):
     # Find the event
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
@@ -1225,9 +1208,6 @@ async def unapprove_event(
     event.is_featured = False
     db.commit()
     db.refresh(event)
-    
-    # Clear cache after successful update
-    await FastAPICache.clear(namespace="")
 
     return {"message": "Event unapproved successfully", "event": event}
 
@@ -1235,7 +1215,7 @@ async def unapprove_event(
 
 # Delete Event
 @router.delete("/events/{event_id}")
-async def delete_event(
+def delete_event(
     event_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_active_user)
@@ -1267,9 +1247,6 @@ async def delete_event(
     # Delete the event
     db.delete(event)
     db.commit()
-    
-    # Clear cache after successful deletion
-    await FastAPICache.clear(namespace="")
 
     # Smart notification based on what type of event was deleted
     if was_featured:
@@ -1598,10 +1575,6 @@ async def edit_banner(
         try:
             db.commit()
             db.refresh(existing_banner)
-            
-            # Clear cache after successful update
-            await FastAPICache.clear(namespace="")
-            
         except Exception as e:
             # Clean up new Cloudinary image if database operation fails
             if banner and cloudinary_result and cloudinary_result.get("public_id"):
@@ -1763,9 +1736,6 @@ async def delete_banner(
     db.delete(banner)
     db.commit()
     
-    # Clear cache after successful deletion
-    await FastAPICache.clear(namespace="")
-    
     # Smart notification based on banner type and approval status
     if is_approved and has_link:
         # Live promotional banner deleted - HIGHEST IMPACT
@@ -1858,6 +1828,7 @@ async def delete_banner(
 
 
 
+
 @router.patch("/banners/{banner_id}/approve", response_model=BannerOut)
 async def approve_banner(
     banner_id: int,
@@ -1892,10 +1863,6 @@ async def approve_banner(
     try:
         db.commit()
         db.refresh(banner)
-        
-        # Clear cache after successful update
-        await FastAPICache.clear(namespace="")
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
@@ -1951,6 +1918,10 @@ async def approve_banner(
     return banner
 
 
+
+
+
+
 @router.patch("/banners/{banner_id}/unapprove", response_model=BannerOut)
 async def unapprove_banner(
     banner_id: int,
@@ -1983,9 +1954,7 @@ async def unapprove_banner(
     banner.is_approved = False
     db.commit()
     db.refresh(banner)
-    
-    # Clear cache after successful update
-    await FastAPICache.clear(namespace="")
+
     
     # Smart notification based on banner type - unapproval is always significant
     if has_link:
@@ -2038,7 +2007,6 @@ async def unapprove_banner(
 
 
 @router.get("/banners", response_model=List[BannerOut])
-@cache(expire=300)
 def get_banners(
     approved_only: Optional[bool] = None,
     db: Session = Depends(get_db)
