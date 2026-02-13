@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import routes_user
 from app.api import email_routes
 from app.api.routes_events import router as event_router
+from app.api.rag_routes import router as ai_router
 from app.core.database import Base, engine
 
 from sqlalchemy.orm import Session
@@ -45,6 +46,7 @@ app.include_router(routes_user.router)
 app.include_router(event_router, prefix="/event")
 app.include_router(google_auth_router)
 app.include_router(email_routes.router)
+app.include_router(ai_router)
 
 
 
