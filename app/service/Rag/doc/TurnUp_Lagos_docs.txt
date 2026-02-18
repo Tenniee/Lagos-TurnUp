@@ -1,0 +1,32 @@
+TurnUp Lagos – Project Summary
+TurnUp Lagos is an event discovery and promotion platform designed to help people easily find, explore, and attend events.
+🎯 Core Purpose
+To become the go-to hub for discovering what’s happening — from concerts and parties to hangouts and special gatherings — while giving event organizers visibility and promotional power.
+________________________________________
+What the Platform Does
+1️⃣   Event Discovery
+Users can:
+•	Browse upcoming events
+•	View event details (date, time, location, description)
+•	See event banners and promotional visuals
+The goal is convenience and visibility.
+________________________________________
+2️⃣   Event Promotion
+For organizers:
+•	Publish events
+•	Highlight key information
+•	Gain exposure to a targeted audience
+•	Potentially promote events for more visibility
+________________________________________
+3️⃣   Automated Event Lifecycle
+Events don’t stay forever:
+•	Past events phase out automatically
+•	The platform stays clean and current
+•	Focus remains on upcoming experiences
+________________________________________
+Bigger Vision
+TurnUp Lagos is positioned to become:
+•	A regional event authority
+•	A promotional marketplace for organizers
+•	A monetizable platform through featured listings, ads, and booking commissions
+It’s not just an event board — it’s meant to be an ecosystem for visibility, attendance, and entertainment culture.

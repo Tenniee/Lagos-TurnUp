@@ -205,54 +205,70 @@ async def create_event(
     event_description: str = Form(""),
     event_flyer: UploadFile = File(None),
     phone_no: str = Form(""),
-    
+
     # Featured request fields
     featured_requested: bool = Form(False),
     contact_method: str = Form(""),
     contact_link: str = Form(""),
     contact_value: str = Form(""),
-    
+    featuring_timeline: str = Form(""),        
+
     db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_optional_active_user)  # ← OPTIONAL ACTIVE USER
+    user: Optional[User] = Depends(get_optional_active_user)
 ):
-    # Check user role and set pending/featured status accordingly
     is_pending = True
     is_featured = False
     user_role = None
     user_id = None
-    
+
     if user:
         user_role = getattr(user, 'role', None)
         user_id = user.id
-        
-        # If user is sub-admin or super-admin
         if user_role in ["sub-admin", "super-admin"]:
-            is_pending = False  # No approval needed
-            # If they requested featured, grant it immediately
+            is_pending = False
             if featured_requested:
                 is_featured = True
-    
-    # Validate contact method if featured is requested
+
+    # Validate featured request fields
     if featured_requested:
         valid_methods = ["email", "phone", "whatsapp"]
         if contact_method not in valid_methods:
             raise HTTPException(400, f"Invalid contact method. Must be one of: {', '.join(valid_methods)}")
-        
+
         final_contact_value = contact_value or contact_link
         if not final_contact_value:
             raise HTTPException(400, "Contact value is required when requesting featured event")
 
+        # Validate featuring_timeline when featured is requested
+        if not featuring_timeline:
+            raise HTTPException(400, "featuring_timeline is required when requesting a featured event")
+        if featuring_timeline not in FEATURING_TIMELINE_OPTIONS:
+            raise HTTPException(400, f"Invalid featuring_timeline. Must be one of: {', '.join(FEATURING_TIMELINE_OPTIONS)}")
+    else:
+        final_contact_value = None
+
+    # --- Compute scheduled dates ---
+    # All events: delete 4 days after the event date
+    event_datetime = datetime.combine(date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    computed_delete_after = event_datetime + timedelta(days=4)
+
+    # Featured events only: compute featured_until from timeline
+    computed_featured_until = None
+    if featuring_timeline and featured_requested:
+        computed_featured_until = compute_featured_until(featuring_timeline)
+
+    # --- Flyer upload ---
     flyer_url = None
     flyer_public_id = None
-    
+
     if event_flyer:
         if not event_flyer.content_type.startswith('image/'):
             raise HTTPException(400, "File must be an image")
-        
+
         content = await event_flyer.read()
         if len(content) > 5 * 1024 * 1024:
             raise HTTPException(400, "File size too large. Maximum 5MB allowed.")
-        
+
         try:
             cloudinary_result = CloudinaryService.upload_event_image(
                 file_content=content,
@@ -262,8 +278,6 @@ async def create_event(
             flyer_public_id = cloudinary_result["public_id"]
         except Exception as e:
             raise HTTPException(500, f"Image upload failed: {str(e)}")
-
-    final_contact_value = contact_value or contact_link if featured_requested else None
 
     new_event = Event(
         event_name=event_name,
@@ -275,17 +289,21 @@ async def create_event(
         event_description=event_description,
         event_flyer=flyer_url,
         event_flyer_public_id=flyer_public_id,
-        is_featured=is_featured,  # Set based on role
-        pending=is_pending,  # Set based on role
+        is_featured=is_featured,
+        pending=is_pending,
         phone_no=phone_no,
-        created_by=user_id,  # Track who created it
-        
+        created_by=user_id,
+
         # Featured request data
-        # Don't set featured_requested if admin already featured it
         featured_requested=featured_requested and not is_featured,
         contact_method=contact_method if featured_requested else None,
         contact_link=contact_link if featured_requested else None,
         contact_value=final_contact_value,
+
+        # ← NEW scheduled fields
+        featuring_timeline=featuring_timeline if featured_requested else None,
+        featured_until=computed_featured_until,
+        delete_after=computed_delete_after,
     )
 
     try:
@@ -298,9 +316,9 @@ async def create_event(
             CloudinaryService.delete_image(flyer_public_id)
         raise HTTPException(500, f"Database error: {str(e)}")
 
-    # Smart notification based on event type and user role
+    # Notifications (unchanged logic, just passing through)
     notification_extra = {
-        "state": new_event.state, 
+        "state": new_event.state,
         "venue": new_event.venue,
         "featured": is_featured,
         "created_by_role": user_role,
@@ -308,12 +326,11 @@ async def create_event(
         "date": str(new_event.date),
         "time": new_event.time
     }
-    
+
     if featured_requested:
         notification_extra["contact_method"] = contact_method
         notification_extra["contact_value"] = final_contact_value
-        
-        # Different messages based on whether admin auto-featured it
+
         if user_role in ["sub-admin", "super-admin"]:
             if is_featured:
                 message = f"🌟 {user_role.upper()} created FEATURED event: '{new_event.event_name}' (Auto-approved)"
@@ -321,7 +338,7 @@ async def create_event(
                 message = f"✅ {user_role.upper()} created event: '{new_event.event_name}' (Auto-approved)"
         else:
             message = f"🌟 New FEATURED event request: '{new_event.event_name}' - Contact via {contact_method}"
-        
+
         push_notification(
             db,
             message=message,
@@ -330,13 +347,12 @@ async def create_event(
             extra_data=notification_extra
         )
     else:
-        # Regular event
         if user_role in ["sub-admin", "super-admin"]:
             message = f"✅ {user_role.upper()} created event: '{new_event.event_name}' (Auto-approved)"
         else:
             creator_type = "user" if user else "anonymous"
             message = f"New event '{new_event.event_name}' created by {creator_type}"
-        
+
         push_notification(
             db,
             message=message,
@@ -346,17 +362,19 @@ async def create_event(
         )
 
     return {
-        "message": "Event created successfully", 
-        "event_id": new_event.id, 
-        "featured_requested": featured_requested and not is_featured,  # False if admin auto-featured
+        "message": "Event created successfully",
+        "event_id": new_event.id,
+        "featured_requested": featured_requested and not is_featured,
         "image_url": flyer_url,
         "contact_value": final_contact_value,
         "requires_approval": is_pending,
         "is_featured": is_featured,
         "created_by": user_role if user else "anonymous",
-        "auto_approved": not is_pending
+        "auto_approved": not is_pending,
+        "featuring_timeline": featuring_timeline if featured_requested else None,   # ← NEW
+        "featured_until": computed_featured_until,                                  # ← NEW
+        "delete_after": computed_delete_after,                                      # ← NEW
     }
-
 
 
 

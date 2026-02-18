@@ -29,6 +29,15 @@ class Event(Base):
     contact_link = Column(String(300), nullable=True)  
     contact_value = Column(String(300), nullable=True)  # NEW: The actual contact value
 
+    # Featured duration (e.g. "3d", "1w", "2w", "1m")
+    featuring_timeline = Column(String(10), nullable=True)
+
+    # Computed from date + 4 days — when the event gets auto-deleted
+    delete_after = Column(DateTime(timezone=True), nullable=True)
+
+    # Computed from created_at + featuring_timeline — when featured status is removed
+    featured_until = Column(DateTime(timezone=True), nullable=True)
+
 
 class Notification(Base):
     __tablename__ = "notifications"
