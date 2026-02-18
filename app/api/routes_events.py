@@ -211,7 +211,7 @@ async def create_event(
     contact_method: str = Form(""),
     contact_link: str = Form(""),
     contact_value: str = Form(""),
-    featuring_timeline: str = Form(""),        
+    featuring_timeline: str = Form(""),       
 
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_optional_active_user)
