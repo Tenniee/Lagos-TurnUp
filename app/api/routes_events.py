@@ -6,6 +6,7 @@ from app.deps.deps import get_db
 from app.models.events import Event, Notification, Newsletter, Banner, Spot
 from app.schemas.events import EventCreate, NotificationOut, NewsletterCreate, EventUpdateSchema, BannerOut, BannerUpdate
 from app.crud.events import push_notification
+from app.utils.timeline_helper import compute_featured_until, FEATURING_TIMELINE_OPTIONS
 from app.schemas.events import EventOut
 from typing import List, Optional
 from app.crud.user import get_current_user
@@ -13,7 +14,7 @@ from app.utils.user_deactivated_handler import get_active_user
 from app.models.user import User
 import uuid
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from app.utils.cloudinary import CloudinaryService
 
 from fastapi_cache.decorator import cache
@@ -216,6 +217,10 @@ async def create_event(
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_optional_active_user)
 ):
+    """Create a new event with optional featured request and flyer upload.
+    This endpoint allows both authenticated and unauthenticated users to create events.
+    # Featured duration (e.g. "3d", "1w", "2w", "1m")
+    """
     is_pending = True
     is_featured = False
     user_role = None
