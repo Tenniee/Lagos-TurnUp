@@ -23,6 +23,9 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 import redis.asyncio as redis
 
+from app.core.database import SessionLocal
+from app.service.Rag.ai_tools import ToolRegistry
+
 app = FastAPI(title="LagosTurnUp")
 scheduler = BackgroundScheduler()
 
@@ -63,6 +66,11 @@ app.include_router(event_router, prefix="/event")
 app.include_router(google_auth_router)
 app.include_router(email_routes.router)
 app.include_router(ai_router)
+
+db = SessionLocal()
+tools = ToolRegistry(db, user=None)  # anonymous, no user
+result = tools.get_latest_events()
+print(result)
 
 
 

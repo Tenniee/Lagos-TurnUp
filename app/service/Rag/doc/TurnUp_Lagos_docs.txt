@@ -30,3 +30,194 @@ TurnUp Lagos is positioned to become:
 •	A promotional marketplace for organizers
 •	A monetizable platform through featured listings, ads, and booking commissions
 It’s not just an event board — it’s meant to be an ecosystem for visibility, attendance, and entertainment culture.
+
+
+
+
+TurnUp Lagos
+Website Overview & Navigation
+Guide
+1. Introduction
+TurnUp Lagos (TUL) is an online events and lifestyle platform that curates
+and promotes events happening in Lagos, Nigeria, and occasionally outside
+Lagos.
+The platform serves as a centralized hub for events (concerts, parties, theater,
+workshops), lifestyle spots (beaches, clubs, restaurants), and tourism
+activities.
+For AI integration, the site functions as a Real-Time Lifestyle Database, where
+the chatbot acts as a Digital Concierge, and the recommendation engine
+serves as an Event Matchmaker.
+The platform serves two primary audiences:
+1. Event seekers – Individuals looking for concerts, parties, workshops,
+hangouts, food experiences, family activities, and other events.
+2. Event organizers – Individuals or brands who want to promote their
+events to TUL’s audience.
+This document explains:
+● What the website is about
+● How it is structured
+● How users navigate it
+● How an AI chatbot should interact with it
+● How AI recommendations can enhance user experience
+2. What the Website Is About
+TurnUp Lagos functions as:
+1. An Event Discovery Platform
+Users can browse upcoming events, see event details, and get information
+such as:
+● Event title
+● Date and time
+● Venue
+● Gate fee (if available)
+● Event description
+2. A City Lifestyle Guide
+The site includes guides such as:
+● Best places to visit in Lagos
+● Lifestyle and entertainment highlights
+● Curated experiences
+3. A Promotion Channel
+Event organizers can:
+● Promote an Event: A dedicated form for organizers to upload flyers and
+event details.
+● Banner Promotion: Options for display advertising on the platform.
+3. Website Structure & Navigation
+3.1 Home Page
+The Home page typically features:
+● Highlighted or trending events
+● Recently added events (In Lagos and Outside Lagos)
+● Quick links to other sections
+The homepage serves as the starting point for discovery.
+3.2 Explore Lagos
+This is the core section of the platform.
+Users can:
+● Browse a list of upcoming events happening in Lagos, sorted in
+descending order of event date
+● Click on an event to see full details
+● Scroll through multiple pages of listings
+Each event preview usually shows:
+● Event image
+● Event title
+● Date
+● Time
+● Short description
+● Link to full details
+3.3 Beyond Lagos
+This section lists events happening outside Lagos, mainly in Abuja, sorted in
+descending order of event date.
+Each event preview usually shows:
+● Event image
+● Event title
+● Date
+● Time
+● Short description
+● Link to full details
+3.4 Event Details Page
+Each event has a dedicated page that contains:
+● Event title
+● Full description
+● Venue
+● Date
+● Time
+● Gate fee (if specified)
+● Location (Lagos or Outside Lagos)
+● Event image
+● Additional Information
+This page provides all the necessary information for a user to decide whether
+to attend an event.
+3.5 Best Places to Visit
+This section provides:
+● Lifestyle content
+● Recommendations for places to visit
+● Experience-based guides
+3.6 Promote an Event
+This section is for event organizers.
+Users can:
+● Submit event details
+● Request listing
+● Contact the platform for promotions
+3.7 Contact Page
+This page includes a Contact form
+4. User Journey Scenarios
+Below are common user journeys and how a chatbot can respond:
+Scenario 1: Event Discovery
+User: “What’s happening tonight in Lagos?”
+Bot Action:
+● Filter events by today’s date
+● Show top 3–5 options
+● Display:
+○ Event name
+○ Event image
+○ Time
+○ Venue
+○ Gate fee
+● Provide “View Details” link
+Scenario 2: Budget-Based Search
+User: “Free events this weekend.”
+Bot Action:
+● Filter by weekend dates
+● Show events with no gate fee listed or marked free
+Scenario 3: Location-Based Search
+User: “Events in Lekki this Saturday.”
+Bot Action:
+● Filter by venue that includes the word ‘Lekki’
+● Filter by selected date
+Scenario 4: Event Details Inquiry
+User: “Tell me about the Afrobeat Party event.”
+Bot Action:
+● Retrieve event details
+● Provide:
+○ Description
+○ Date & time
+○ Venue
+○ Gate fee
+○ Direct link
+Scenario 5: Event Promotion
+User: “I want to promote my event.”
+Bot Response:
+● Explain the process
+● Direct the user to the Promote Event page
+5. Information Categories for AI
+Extraction
+To power chatbot responses and recommendations, the following information
+should be captured from each event:
+1. Event title
+2. Event description
+3. Date
+4. Time
+5. Venue
+6. Location
+7. Gate fee (if available)
+8. Event image
+9. Event link
+This information allows:
+● Smart filtering
+● Personalized recommendations
+● “Near me” suggestions
+● Budget-based suggestions
+● Themed suggestions
+6. AI Recommendation Strategy
+To enhance visitor engagement, the AI system can recommend events based
+on:
+1. Date Proximity
+Prioritize events happening:
+● Today
+● This weekend
+● Within the next 7 days
+2. User Preferences
+If a user frequently views:
+● Music events → Recommend similar music events
+● Food events → Recommend similar food events
+● Family events → Show more family-friendly options
+3. Location Preference
+If a user frequently searches for Lekki, suggest Lekki events first.
+7. Conclusion
+TurnUp Lagos is a structured event discovery and promotion platform focused
+primarily on Lagos-based experiences.
+For AI integration, the most important components are:
+● Event listings
+● Event detail pages
+● Location tags
+● Date & time information
+● Gate fee information
+● Promotion workflow
+By structuring this information properly and enabling conversational
+filtering, the chatbot can transform the website into an intelligent event
+concierge for website visitors.
