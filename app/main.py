@@ -14,8 +14,6 @@ from app.deps.deps import get_db
 
 from app.api.google_auth import router as google_auth_router
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from app.core.tasks import unfeature_expired_events, delete_old_events
 
 
@@ -27,19 +25,6 @@ from app.core.database import SessionLocal
 from app.service.Rag.ai_tools import ToolRegistry
 
 app = FastAPI(title="LagosTurnUp")
-scheduler = BackgroundScheduler()
-
-
-@app.on_event("startup")
-def start_scheduler():
-    scheduler.add_job(unfeature_expired_events, CronTrigger(hour=0, minute=0))
-    scheduler.add_job(delete_old_events, CronTrigger(hour=0, minute=0))
-    scheduler.start()
-
-@app.on_event("shutdown")
-def stop_scheduler():
-    scheduler.shutdown()
-
 
 app.add_middleware(
     CORSMiddleware,
