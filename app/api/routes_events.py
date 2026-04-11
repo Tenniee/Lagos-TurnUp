@@ -2467,8 +2467,8 @@ async def edit_spot_endpoint(
         raise HTTPException(404, "Spot not found")
     
     # Check if user owns the spot (optional authorization check)
-    if existing_spot.user_id != user.id:
-        raise HTTPException(403, "You can only edit your own spots")
+    #if existing_spot.user_id != user.id:
+    #    raise HTTPException(403, "You can only edit your own spots")
     
     # Validate spot_type
     valid_types = ["hotel", "club", "foodspot", "beach"]

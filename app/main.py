@@ -67,3 +67,4 @@ async def debug_tables(db: Session = Depends(get_db)):
         return {"tables": tables}
     except Exception as e:
         return {"error": str(e)}
+    
